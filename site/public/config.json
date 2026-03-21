@@ -1,0 +1,7 @@
+{
+  "r2Endpoint": "./state/live-state.json",
+  "pollIntervalMs": 60000,
+  "mockMode": "compiler",
+  "useMockWhenEndpointMissing": true,
+  "staleAfterConsecutiveUnchangedPolls": 2
+}

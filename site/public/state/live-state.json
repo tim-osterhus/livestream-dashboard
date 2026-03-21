@@ -1,0 +1,73 @@
+{
+  "timestamp": "2026-03-21T22:30:00Z",
+  "run_id": "prelim-run-pending",
+  "elapsed_seconds": 0,
+  "loop": {
+    "active_loop": null,
+    "research_mode": null
+  },
+  "pipeline": {
+    "current_agent": null,
+    "current_task_index": 0,
+    "total_tasks": 0,
+    "agent_started_at": null
+  },
+  "tasks": [
+    {
+      "id": 1,
+      "name": "Waiting for research loop startup",
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "name": "Waiting for orchestration loop startup",
+      "status": "pending"
+    },
+    {
+      "id": 3,
+      "name": "Dashboard will auto-refresh from live tracker output",
+      "status": "pending"
+    }
+  ],
+  "metrics": {
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "current_model": null,
+    "cycle_number": 0
+  },
+  "tests": {
+    "gcc_torture": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    },
+    "sqlite": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    },
+    "redis": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    },
+    "lua": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    }
+  },
+  "latest_commit": {
+    "hash": null,
+    "message": null,
+    "timestamp": null
+  },
+  "log_lines": [
+    "[boot] dashboard ready",
+    "[boot] waiting for fresh research/orchestrate output"
+  ]
+}
