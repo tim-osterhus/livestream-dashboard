@@ -1,5 +1,4 @@
 import { React } from './react-global.js';
-import { TaskBar } from './components/TaskBar.js';
 import { MetricsSidebar } from './components/MetricsSidebar.js';
 import { LogTicker } from './components/LogTicker.js';
 import { WorkshopScene } from './components/WorkshopScene.js';
@@ -9,7 +8,6 @@ export function App() {
   const {
     snapshot,
     logLines,
-    previousAgent,
     showStaleIndicator,
     staleAgeSeconds,
   } = useDashboardData();
@@ -18,8 +16,8 @@ export function App() {
     <main className="dashboard-root">
       <div className="dashboard-layout">
         <div className="dashboard-main">
-          <WorkshopScene snapshot={snapshot} previousAgent={previousAgent} />
-          <TaskBar snapshot={snapshot} />
+          <WorkshopScene snapshot={snapshot} />
+          <LogTicker lines={logLines} />
         </div>
         <MetricsSidebar
           snapshot={snapshot}
@@ -27,7 +25,6 @@ export function App() {
           staleAgeSeconds={staleAgeSeconds}
         />
       </div>
-      <LogTicker lines={logLines} />
     </main>
   );
 }

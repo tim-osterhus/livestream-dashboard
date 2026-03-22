@@ -7,7 +7,6 @@ import {
   formatElapsedTime,
   formatMillions,
   formatTimestampAge,
-  prettifySuiteName,
 } from '../utils/format.js';
 import { getCompletedTaskCount, getProgressBreakdown } from '../utils/telemetry.js';
 import { getDisplayName } from '../workers.js';
@@ -27,6 +26,13 @@ function MetricGroup({ label, children }: { label: string; children: any }) {
   );
 }
 
+function formatLoopLabel(snapshot: DashboardSnapshot): string {
+  if (snapshot.loop.activeLoop === 'research') {
+    return `Research / ${snapshot.loop.researchMode || 'goalspec'}`;
+  }
+  return 'Orchestration / Forge';
+}
+
 export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }: MetricsSidebarProps) {
   const completedTasks = getCompletedTaskCount(snapshot);
   const progressRatio = countProgress(completedTasks, snapshot.pipeline.totalTasks);
@@ -35,9 +41,7 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
   const costColor = interpolateHex(COLORS.muted, COLORS.heatHot, progressRatio);
 
   const [commitFlash, setCommitFlash] = useState(false);
-  const [activatedSuites, setActivatedSuites] = useState([] as string[]);
   const previousCommitHashRef = useRef(snapshot.latestCommit.hash);
-  const previousTestsRef = useRef(snapshot.tests);
 
   useEffect(() => {
     const previousHash = previousCommitHashRef.current;
@@ -53,41 +57,13 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
     return undefined;
   }, [snapshot.latestCommit.hash]);
 
-  useEffect(() => {
-    const previousTests = previousTestsRef.current;
-    const nextActivated = Object.entries(snapshot.tests)
-      .filter(([suiteName, suite]) => {
-        const previousSuite = previousTests[suiteName];
-        const previousVisible = Boolean(previousSuite?.active || previousSuite?.total || previousSuite?.passed || previousSuite?.failed);
-        const nextVisible = Boolean(suite.active || suite.total || suite.passed || suite.failed);
-        return nextVisible && !previousVisible;
-      })
-      .map(([suiteName]) => suiteName);
-
-    previousTestsRef.current = snapshot.tests;
-
-    if (!nextActivated.length) {
-      return undefined;
-    }
-
-    setActivatedSuites(nextActivated);
-    const timer = window.setTimeout(() => setActivatedSuites([]), 650);
-    return () => window.clearTimeout(timer);
-  }, [snapshot.tests]);
-
-  const hasAnyLiveSuites = Object.values(snapshot.tests).some(
-    (suite) => suite.active || suite.total > 0 || suite.passed > 0 || suite.failed > 0,
-  );
-
-  const suiteEntries = Object.entries(snapshot.tests).filter(([, suite]) => {
-    if (!hasAnyLiveSuites) {
-      return true;
-    }
-    return suite.active || suite.total > 0 || suite.passed > 0 || suite.failed > 0;
-  });
-
   return (
     <aside className="metrics-sidebar" aria-label="Run metrics">
+      <MetricGroup label="Run">
+        <div className="metric-value">{formatLoopLabel(snapshot)}</div>
+        <div className="metric-subline">{snapshot.runId || 'run-id pending'}</div>
+      </MetricGroup>
+
       <MetricGroup label="Cost">
         <div className="metric-cost" style={{ color: costColor }}>
           $200
@@ -103,11 +79,6 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
       <MetricGroup label="Active Agent">
         <div className={`metric-active-agent ${snapshot.pipeline.currentAgent ? '' : 'metric-value--muted'}`}>
           {activeAgentName}
-        </div>
-        <div className="metric-subline">
-          {snapshot.metrics.currentModel || '--'}
-          {' · cycle '}
-          {snapshot.metrics.cycleNumber ?? '--'}
         </div>
       </MetricGroup>
 
@@ -135,35 +106,17 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
         </div>
       </MetricGroup>
 
-      <MetricGroup label="Test Results">
-        <div className="test-results">
-          {suiteEntries.map(([suiteName, suite]) => {
-            const isAwaiting = !suite.active && suite.total === 0 && suite.passed === 0 && suite.failed === 0;
-            const isActivated = activatedSuites.includes(suiteName);
-
-            return (
-              <div
-                key={suiteName}
-                className={`test-suite-row ${isAwaiting ? 'test-suite-row--awaiting' : ''} ${isActivated ? 'test-suite-row--revealed' : ''}`}
-              >
-                <div className="test-suite-row__name">{prettifySuiteName(suiteName)}</div>
-                {isAwaiting ? (
-                  <div className="test-suite-row__awaiting">Awaiting activation</div>
-                ) : (
-                  <div className="test-suite-row__stats">
-                    <span className="test-suite-row__pass">{suite.passed} pass</span>
-                    <span className="test-suite-row__fail">{suite.failed} fail</span>
-                    <span className="test-suite-row__total">/ {suite.total}</span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      <MetricGroup label="Feed Health">
+        <div className={`metric-value ${showStaleIndicator ? 'metric-value--warning' : 'metric-value--positive'}`}>
+          {showStaleIndicator ? 'Tracker stale' : 'Polling live'}
+        </div>
+        <div className="metric-subline">
+          {showStaleIndicator ? `Last updated ${formatTimestampAge(staleAgeSeconds)}` : 'Auto-refresh enabled'}
         </div>
       </MetricGroup>
 
       <div className="sidebar-footer">
-        {showStaleIndicator ? `Last updated ${formatTimestampAge(staleAgeSeconds)}` : ''}
+        Preliminary livestream surface
       </div>
     </aside>
   );
