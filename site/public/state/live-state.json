@@ -1,73 +1,65 @@
 {
-  "timestamp": "2026-03-21T22:30:00Z",
-  "run_id": "prelim-run-pending",
-  "elapsed_seconds": 0,
+  "timestamp": "2026-03-17T09:18:12Z",
+  "run_id": "git-clone-prelim-001",
+  "elapsed_seconds": 10440,
   "loop": {
-    "active_loop": null,
+    "active_loop": "orchestration",
     "research_mode": null
   },
   "pipeline": {
-    "current_agent": null,
-    "current_task_index": 0,
-    "total_tasks": 0,
-    "agent_started_at": null
+    "current_agent": "check",
+    "current_task_index": 21,
+    "total_tasks": 92,
+    "agent_started_at": "2026-03-17T09:12:40Z"
   },
   "tasks": [
     {
-      "id": 1,
-      "name": "Waiting for research loop startup",
-      "status": "pending"
+      "id": 19,
+      "name": "Implement branch listing and reference updates",
+      "status": "complete"
     },
     {
-      "id": 2,
-      "name": "Waiting for orchestration loop startup",
-      "status": "pending"
+      "id": 20,
+      "name": "Write checkout path for branch switch and file restore",
+      "status": "complete"
     },
     {
-      "id": 3,
-      "name": "Dashboard will auto-refresh from live tracker output",
+      "id": 21,
+      "name": "Validate loose-object compatibility against real Git for add, commit, and log",
+      "status": "active",
+      "active_agent": "check"
+    },
+    {
+      "id": 22,
+      "name": "Implement three-way merge with basic conflict detection",
       "status": "pending"
     }
   ],
   "metrics": {
-    "tokens_in": 0,
-    "tokens_out": 0,
-    "current_model": null,
-    "cycle_number": 0
+    "tokens_in": 3820000,
+    "tokens_out": 1090000,
+    "cached_tokens": 1410000,
+    "current_model": "gpt-5.2",
+    "cycle_number": 76
   },
   "tests": {
-    "gcc_torture": {
-      "passed": 0,
-      "failed": 0,
-      "total": 0,
-      "active": false
-    },
-    "sqlite": {
-      "passed": 0,
-      "failed": 0,
-      "total": 0,
-      "active": false
-    },
-    "redis": {
-      "passed": 0,
-      "failed": 0,
-      "total": 0,
-      "active": false
-    },
-    "lua": {
-      "passed": 0,
-      "failed": 0,
-      "total": 0,
-      "active": false
-    }
+    "git_compat": { "passed": 58, "failed": 4, "total": 70, "active": true },
+    "repo_parity": { "passed": 19, "failed": 2, "total": 24, "active": true },
+    "merge_cases": { "passed": 0, "failed": 0, "total": 0, "active": false }
   },
   "latest_commit": {
-    "hash": null,
-    "message": null,
-    "timestamp": null
+    "hash": "4f7d9a1",
+    "message": "Implement checkout path for branch heads and working tree restoration",
+    "timestamp": "2026-03-17T09:11:02Z"
   },
   "log_lines": [
-    "[boot] dashboard ready",
-    "[boot] waiting for fresh research/orchestrate output"
+    "[08:57:03] Stage Builder: complete — task=\"Write checkout path for branch switch and file restore\"",
+    "[08:57:03] Stage QA: starting — model=gpt-5.2",
+    "[09:02:50] QA: result=QA_COMPLETE",
+    "[09:02:53] Progress: 20/92 tasks — elapsed 02h54m",
+    "[09:02:56] Stage QA: starting — task=\"Validate loose-object compatibility against real Git for add, commit, and log\"",
+    "[09:08:31] QA: running git compatibility harness against generated repo fixtures",
+    "[09:14:44] QA: 58 pass / 4 fail — remaining failures isolated to reflog edge cases",
+    "[09:18:12] QA: running (332s elapsed)"
   ]
 }

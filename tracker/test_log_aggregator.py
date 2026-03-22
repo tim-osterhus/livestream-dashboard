@@ -116,6 +116,27 @@ class LogAggregatorTests(unittest.TestCase):
         self.assertIn('Stage Incident Resolve: starting', output)
         self.assertIn('mode=audit', output)
 
+    def test_normalizes_runner_start_lines_into_stage_start_events(self) -> None:
+        self.research_log.write_text(
+            "[2026-03-16 12:00:03] Research-goal_intake: runner=codex model=gpt-5.3-codex effort=high search=false timeout=5400s\n",
+            encoding="utf-8",
+        )
+        self.orchestrate_log.write_text(
+            "[2026-03-16 12:00:04] Builder: runner=codex model=gpt-5.4 task=\"Build local Git object store\"\n",
+            encoding="utf-8",
+        )
+
+        aggregator = self._make_aggregator()
+        aggregator.prepare_output()
+        aggregator.process_cycle()
+
+        output = self.dashboard_log.read_text(encoding="utf-8")
+        self.assertIn("Stage Goal Intake: starting", output)
+        self.assertIn("mode=audit", output)
+        self.assertIn("Stage Builder: starting", output)
+        self.assertIn('task="Build local Git object store"', output)
+        self.assertIn("model=gpt-5.4", output)
+
     def test_emits_snapshot_progress_tests_and_runner_note_escalation(self) -> None:
         self.orchestrate_log.write_text("", encoding="utf-8")
         self.research_log.write_text("", encoding="utf-8")

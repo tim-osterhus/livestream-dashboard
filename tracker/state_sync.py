@@ -123,6 +123,7 @@ MODE_META_RE = re.compile(r"\bmode=(goalspec|incident|audit)\b", re.IGNORECASE)
 MODEL_RE = re.compile(r"\bmodel=([A-Za-z0-9._-]+)\b")
 PROGRESS_RE = re.compile(r"\bProgress:\s*(\d+)\s*/\s*(\d+)\s+tasks?\b", re.IGNORECASE)
 TOKEN_RE = re.compile(r"\bTokens?:.*?\bin\s*=\s*(\d+)\b.*?\bout\s*=\s*(\d+)\b", re.IGNORECASE)
+TOKEN_CACHED_RE = re.compile(r"\bcached\s*=\s*(\d+)\b", re.IGNORECASE)
 TASK_QUOTED_RE = re.compile(r"\btask=(?:\"([^\"]+)\"|'([^']+)')")
 TASK_UNQUOTED_RE = re.compile(r"\btask=([^—]+?)(?:$|\s+runner=|\s+model=|\s+mode=)", re.IGNORECASE)
 STAGE_START_RE = re.compile(r"^Stage\s+(.+?):\s*starting\b(?:\s*[—-]\s*(.*))?$", re.IGNORECASE)
@@ -180,6 +181,7 @@ class ParserState:
     current_model: Optional[str] = None
     token_in_total: int = 0
     token_out_total: int = 0
+    token_cached_total: int = 0
     known_task_names: Dict[int, str] = field(default_factory=dict)
     active_task_index: Optional[int] = None
     seen_line_fingerprints: Set[str] = field(default_factory=set)
@@ -316,6 +318,8 @@ class StateSync:
         if not match:
             return
         tokens_in, tokens_out = int(match.group(1)), int(match.group(2))
+        cached_match = TOKEN_CACHED_RE.search(content)
+        tokens_cached = int(cached_match.group(1)) if cached_match else 0
         lowered = content.lower()
         is_absolute = any(
             marker in lowered
@@ -324,9 +328,11 @@ class StateSync:
         if is_absolute:
             self.state.token_in_total = tokens_in
             self.state.token_out_total = tokens_out
+            self.state.token_cached_total = tokens_cached
         else:
             self.state.token_in_total += tokens_in
             self.state.token_out_total += tokens_out
+            self.state.token_cached_total += tokens_cached
 
     def _parse_research_mode(self, content: str, source: str) -> None:
         if source != "research":
@@ -397,6 +403,7 @@ class StateSync:
             "metrics": {
                 "tokens_in": self.state.token_in_total,
                 "tokens_out": self.state.token_out_total,
+                "cached_tokens": self.state.token_cached_total,
                 "current_model": self.state.current_model,
                 "cycle_number": self.state.completed_tasks_count,
             },

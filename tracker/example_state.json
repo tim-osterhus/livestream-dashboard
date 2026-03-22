@@ -108,6 +108,7 @@
   "metrics": {
     "tokens_in": 245000,
     "tokens_out": 62000,
+    "cached_tokens": 128000,
     "current_model": "gpt-5.2",
     "cycle_number": 1
   },

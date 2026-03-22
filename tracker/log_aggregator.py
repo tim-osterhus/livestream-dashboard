@@ -52,6 +52,11 @@ RAW_AGENT_TO_DISPLAY = {
     "_audit_validate.md": "Audit Validate",
     "_audit_gatekeeper.md": "Audit Gatekeeper",
 }
+RAW_AGENT_BARE_TO_DISPLAY = {
+    key[1:-3]: value
+    for key, value in RAW_AGENT_TO_DISPLAY.items()
+    if key.startswith("_") and key.endswith(".md")
+}
 
 DISPLAY_NAMES = set(RAW_AGENT_TO_DISPLAY.values())
 
@@ -89,6 +94,10 @@ STAGE_LINE_RE = re.compile(
 )
 SIMPLE_AGENT_EVENT_RE = re.compile(
     r"^(?P<agent>[^:]+):\s*(?P<action>complete|completed|starting|started|running)\b(?P<meta>.*)$",
+    re.IGNORECASE,
+)
+RUNNER_START_RE = re.compile(
+    r"^(?:(?:Research|Orchestrate)-)?(?P<agent>[^:]+):\s*runner=(?P<runner>[^\s]+)(?P<meta>.*)$",
     re.IGNORECASE,
 )
 EXIT_ONLY_RE = re.compile(r"^(?P<agent>[^:]+):.*?\bexit=(?P<exit>\d+)\b", re.IGNORECASE)
@@ -288,6 +297,7 @@ class Aggregator:
             self._normalize_token_usage_line(text)
             or self._normalize_raw_progress_line(text, snapshot=snapshot)
             or self._normalize_agent_status_line(text)
+            or self._normalize_runner_start_line(text, source=source, snapshot=snapshot)
             or self._normalize_stage_line(text, source=source, snapshot=snapshot)
             or self._normalize_simple_agent_event(text)
             or self._normalize_exit_only_line(text)
@@ -345,6 +355,19 @@ class Aggregator:
             separator = " " if meta.startswith("(") else EM_DASH
             return f"Stage {agent}: {action}{separator}{meta}"
         return f"Stage {agent}: {action}"
+
+    def _normalize_runner_start_line(self, text: str, source: str, snapshot: RepoSnapshot) -> Optional[str]:
+        match = RUNNER_START_RE.match(text)
+        if not match:
+            return None
+
+        agent = self._display_agent(match.group("agent"))
+        meta = self._clean_meta(match.group("meta"))
+        meta = self._enrich_stage_meta(meta, agent=agent, source=source, snapshot=snapshot)
+        if meta:
+            separator = " " if meta.startswith("(") else EM_DASH
+            return f"Stage {agent}: starting{separator}{meta}"
+        return f"Stage {agent}: starting"
 
     def _normalize_simple_agent_event(self, text: str) -> Optional[str]:
         if text.startswith("Stage "):
@@ -444,6 +467,8 @@ class Aggregator:
         agent = os.path.basename(agent)
         if agent in RAW_AGENT_TO_DISPLAY:
             return RAW_AGENT_TO_DISPLAY[agent]
+        if agent in RAW_AGENT_BARE_TO_DISPLAY:
+            return RAW_AGENT_BARE_TO_DISPLAY[agent]
         if agent in DISPLAY_NAMES:
             return agent
         if agent.startswith("_") and agent.endswith(".md"):

@@ -69,6 +69,7 @@ export interface RawDashboardPayload {
   metrics?: {
     tokens_in?: number;
     tokens_out?: number;
+    cached_tokens?: number;
     current_model?: string | null;
     cycle_number?: number | string | null;
   };
@@ -114,6 +115,7 @@ export interface DashboardSnapshot {
   metrics: {
     tokensIn: number;
     tokensOut: number;
+    cachedTokens: number;
     currentModel: string | null;
     cycleNumber: number | null;
   };

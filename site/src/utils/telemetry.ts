@@ -94,6 +94,7 @@ export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
     metrics: {
       tokensIn: toPositiveNumber(raw.metrics?.tokens_in),
       tokensOut: toPositiveNumber(raw.metrics?.tokens_out),
+      cachedTokens: toPositiveNumber(raw.metrics?.cached_tokens),
       currentModel: raw.metrics?.current_model ?? null,
       cycleNumber: raw.metrics?.cycle_number == null ? null : toPositiveNumber(raw.metrics.cycle_number),
     },

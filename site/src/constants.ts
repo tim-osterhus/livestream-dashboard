@@ -44,6 +44,7 @@ export const IDLE_SNAPSHOT: DashboardSnapshot = {
   metrics: {
     tokensIn: 0,
     tokensOut: 0,
+    cachedTokens: 0,
     currentModel: null,
     cycleNumber: null,
   },

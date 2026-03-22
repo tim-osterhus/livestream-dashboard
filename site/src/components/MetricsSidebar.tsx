@@ -93,7 +93,10 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
 
       <MetricGroup label="Tokens">
         <div className="metric-subline metric-subline--tokens">
-          IN {formatMillions(snapshot.metrics.tokensIn)}&nbsp;&nbsp;OUT {formatMillions(snapshot.metrics.tokensOut)}
+          IN {formatMillions(snapshot.metrics.tokensIn)}
+        </div>
+        <div className="metric-subline metric-subline--tokens">
+          CACHED {formatMillions(snapshot.metrics.cachedTokens)}&nbsp;&nbsp;OUT {formatMillions(snapshot.metrics.tokensOut)}
         </div>
       </MetricGroup>
 
