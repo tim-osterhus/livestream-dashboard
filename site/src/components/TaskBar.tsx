@@ -11,14 +11,20 @@ export function TaskBar({ snapshot }: TaskBarProps) {
   const activeTask = getActiveTask(snapshot);
   const activeStage = getActiveStage(snapshot);
   const activeStageIndex = activeStage ? PIPELINE_STAGES.indexOf(activeStage) : -1;
+  const stageLabel = activeStage === null ? 'Idle' : activeStage === 'qa' ? 'QA' : activeStage.replace(/_/g, ' ');
+  const isStandby = !snapshot.pipeline.currentAgent && snapshot.pipeline.totalTasks === 0;
+  const taskLabel = isStandby ? 'Waiting for first loop signal' : (activeTask?.name || 'Waiting for first loop signal');
 
   return (
     <div className="task-bar" aria-label="Current task status">
       <div className="task-bar__counter">
         {snapshot.pipeline.currentTaskIndex} / {snapshot.pipeline.totalTasks}
       </div>
-      <div className="task-bar__name" title={activeTask?.name || ''}>
-        {activeTask?.name || ''}
+      <div className="task-bar__name" title={taskLabel}>
+        {taskLabel}
+      </div>
+      <div className="task-bar__meta">
+        {stageLabel}
       </div>
       <div className="task-bar__pipeline" aria-hidden="true">
         {PIPELINE_STAGES.map((stage, index) => {

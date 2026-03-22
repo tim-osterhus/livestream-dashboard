@@ -38,6 +38,29 @@ function formatLoopLabel(snapshot: DashboardSnapshot): string {
   return 'Orchestration / Forge';
 }
 
+function getFocusTitle(snapshot: DashboardSnapshot, activeTask: DashboardTask | null): string {
+  if (!snapshot.pipeline.currentAgent && snapshot.pipeline.totalTasks === 0) {
+    return 'Waiting for first loop signal';
+  }
+  if (activeTask?.name) {
+    return activeTask.name;
+  }
+  if (snapshot.loop.activeLoop === 'research') {
+    return 'Research loop is live';
+  }
+  return 'Awaiting next task card';
+}
+
+function getFocusTagline(snapshot: DashboardSnapshot): string {
+  if (!snapshot.pipeline.currentAgent && snapshot.pipeline.totalTasks === 0) {
+    return 'Start either logged loop and the dashboard will swap from seeded standby into live telemetry automatically.';
+  }
+  if (snapshot.loop.activeLoop === 'research') {
+    return 'Use this surface to make decomposition, audit posture, and incident handling legible at a glance, not to mimic worker animation.';
+  }
+  return 'Execution is live. The center canvas should foreground task movement, verification evidence, and queue health instead of placeholder chrome.';
+}
+
 function getStageRuntimeSeconds(snapshot: DashboardSnapshot): number {
   if (!snapshot.pipeline.agentStartedAt || !snapshot.timestamp) {
     return 0;
@@ -136,10 +159,8 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
   const activeAgentName = getDisplayName(snapshot.pipeline.currentAgent);
   const stageRuntime = getStageRuntimeSeconds(snapshot);
   const totalCompletedTasks = getCompletedTaskCount(snapshot);
-  const focusTagline =
-    snapshot.loop.activeLoop === 'research'
-      ? 'Research loop visible. Use this space to show decomposition, audit, and incident posture rather than worker animation.'
-      : 'Execution loop visible. The center canvas now emphasizes live task movement, recent evidence, and queue health.';
+  const focusTitle = getFocusTitle(snapshot, activeTask);
+  const focusTagline = getFocusTagline(snapshot);
 
   return (
     <section className="workshop-shell" aria-label="Mission control command deck">
@@ -149,8 +170,8 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
       <div className={`command-deck ${researchSwapPulse ? 'command-deck--swap' : ''}`}>
         <header className="command-deck__header">
           <div>
-            <div className="command-deck__eyebrow">Mission Control MVP</div>
-            <div className="command-deck__title">Track2 + Track3 Livestream Surface</div>
+            <div className="command-deck__eyebrow">Millrace Mission Control</div>
+            <div className="command-deck__title">Livestream dashboard</div>
           </div>
           <div className="command-deck__pills">
             <span className={`signal-pill signal-pill--${snapshot.loop.activeLoop}`}>{formatLoopLabel(snapshot)}</span>
@@ -161,9 +182,9 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
 
         <div className="command-deck__body">
           <section className="deck-panel deck-panel--roster">
-            <div className="deck-panel__heading">Active Ensemble</div>
+            <div className="deck-panel__heading">Agent Roster</div>
             <p className="deck-panel__hint">
-              Static roster cards replace the sprite horseshoe. This keeps the scene readable on stream without waiting on Track1 art.
+              Track1 is intentionally skipped here. The roster stays compact so task flow, validation, and queue state can own the screen.
             </p>
             <div className="roster-list">
               {workers.map((worker: WorkerDefinition) => {
@@ -196,8 +217,8 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
           <section className="deck-panel deck-panel--focus">
             <div className="focus-hero">
               <div className="focus-hero__eyebrow">{formatStageLabel(activeStage)}</div>
-              <h2 className="focus-hero__task" title={activeTask?.name || ''}>
-                {activeTask?.name || 'Awaiting next task card'}
+              <h2 className="focus-hero__task" title={focusTitle}>
+                {focusTitle}
               </h2>
               <div className="focus-hero__subline">
                 {focusTagline}
@@ -296,7 +317,7 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
 
           <aside className="deck-panel deck-panel--intel">
             <article className="info-panel">
-              <div className="info-panel__heading">Queue horizon</div>
+              <div className="info-panel__heading">Queue Horizon</div>
               <div className="queue-list">
                 {upcomingTasks.length ? (
                   upcomingTasks.map((task: DashboardTask) => (
@@ -312,7 +333,7 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
             </article>
 
             <article className="info-panel">
-              <div className="info-panel__heading">Recent completions</div>
+              <div className="info-panel__heading">Recent Completions</div>
               <div className="queue-list">
                 {completedTasks.length ? (
                   completedTasks.map((task: DashboardTask) => (
@@ -328,7 +349,7 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
             </article>
 
             <article className="info-panel">
-              <div className="info-panel__heading">Live signal</div>
+              <div className="info-panel__heading">Live Signal</div>
               <div className="signal-stack">
                 <div className="signal-stack__row">
                   <span>Loop posture</span>
@@ -352,10 +373,6 @@ export function WorkshopScene({ snapshot, previousAgent }: WorkshopSceneProps) {
               </div>
             </article>
           </aside>
-        </div>
-
-        <div className="workshop-watermark">
-          Track1 intentionally skipped for MVP. Fill the stage with telemetry, queue state, and validation evidence.
         </div>
       </div>
     </section>
