@@ -121,7 +121,6 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
       <div className={`command-deck ${researchSwapPulse ? 'command-deck--swap' : ''}`}>
         <header className="command-deck__header">
           <div>
-            <div className="command-deck__eyebrow">Millrace Mission Control</div>
             <div className="command-deck__title">Livestream dashboard</div>
           </div>
         </header>
@@ -130,7 +129,7 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
           <section className="deck-panel deck-panel--focus">
             <div className="focus-summary">
               <div className="focus-hero">
-                <div className="focus-hero__eyebrow">{formatStageLabel(activeStage)}</div>
+                <div className="focus-hero__eyebrow">Millrace Mission Control</div>
                 <h2 className="focus-hero__task" title={focusTitle}>
                   {focusTitle}
                 </h2>

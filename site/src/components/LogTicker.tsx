@@ -18,7 +18,7 @@ function splitTimestamp(line: string): { timestamp: string | null; message: stri
 
 export function LogTicker({ lines }: LogTickerProps) {
   const listRef = useRef(null as HTMLDivElement | null);
-  const visibleLines = lines.slice(-14);
+  const visibleLines = lines.slice(-18);
 
   useEffect(() => {
     const listElement = listRef.current;
@@ -34,10 +34,6 @@ export function LogTicker({ lines }: LogTickerProps) {
 
   return (
     <section className="log-ticker" aria-label="Recent logs">
-      <div className="log-ticker__header">
-        <div className="log-ticker__title">Run transcript</div>
-        <div className="log-ticker__meta">{visibleLines.length} lines buffered</div>
-      </div>
       <div className="log-ticker__list" ref={listRef}>
         {visibleLines.map((line, index) => {
           const isRecent = index >= visibleLines.length - 2;
