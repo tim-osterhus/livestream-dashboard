@@ -18,7 +18,7 @@ function splitTimestamp(line: string): { timestamp: string | null; message: stri
 
 export function LogTicker({ lines }: LogTickerProps) {
   const listRef = useRef(null as HTMLDivElement | null);
-  const visibleLines = lines.slice(-18);
+  const visibleLines = lines.slice(-24);
 
   useEffect(() => {
     const listElement = listRef.current;
@@ -34,17 +34,23 @@ export function LogTicker({ lines }: LogTickerProps) {
 
   return (
     <section className="log-ticker" aria-label="Recent logs">
-      <div className="log-ticker__list" ref={listRef}>
-        {visibleLines.map((line, index) => {
-          const isRecent = index >= visibleLines.length - 2;
-          const { timestamp, message } = splitTimestamp(line);
-          return (
-            <div key={`${index}-${line}`} className={`log-ticker__line ${isRecent ? 'log-ticker__line--recent' : ''}`} title={line}>
-              {timestamp ? <span className="log-ticker__timestamp">{timestamp}</span> : null}
-              <span className="log-ticker__message">{message}</span>
-            </div>
-          );
-        })}
+      <div className="log-ticker__viewport" ref={listRef}>
+        <div className="log-ticker__list">
+          {visibleLines.map((line, index) => {
+            const isRecent = index >= visibleLines.length - 2;
+            const { timestamp, message } = splitTimestamp(line);
+            return (
+              <div
+                key={`${index}-${line}`}
+                className={`log-ticker__line ${isRecent ? 'log-ticker__line--recent' : ''}`}
+                title={line}
+              >
+                {timestamp ? <span className="log-ticker__timestamp">{timestamp}</span> : null}
+                <span className="log-ticker__message">{message}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
