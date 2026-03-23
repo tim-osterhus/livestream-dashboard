@@ -6,6 +6,7 @@ DASHBOARD_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 SITE_DIR="$DASHBOARD_ROOT/site"
 TRACKER_DIR="$DASHBOARD_ROOT/tracker"
 RUNTIME_DIR="$DASHBOARD_ROOT/runtime"
+PRESIGN_TOOL="$SCRIPT_DIR/generate_r2_presigned_put.py"
 
 TARGET_ROOT="${1:-/mnt/f/_prelim-run/git-build}"
 PORT="${PORT:-4173}"
@@ -17,6 +18,8 @@ STATE_JSON="$SITE_DIR/dist/state/live-state.json"
 HTTP_LOG="$RUNTIME_DIR/http-server.log"
 AGG_LOG="$RUNTIME_DIR/log-aggregator.log"
 SYNC_LOG="$RUNTIME_DIR/state-sync.log"
+R2_UPLOAD_URL="${R2_ENDPOINT:-}"
+R2_PUBLIC_URL="${R2_PUBLIC_URL:-}"
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -46,6 +49,23 @@ require python3
 
 mkdir -p "$RUNTIME_DIR"
 
+if [ -z "$R2_UPLOAD_URL" ] && [ -n "${R2_S3_ENDPOINT:-}" ] && [ -n "${R2_BUCKET:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ]; then
+  if [ ! -f "$PRESIGN_TOOL" ]; then
+    echo "Missing presign helper: $PRESIGN_TOOL" >&2
+    exit 1
+  fi
+  R2_UPLOAD_URL="$(
+    python3 "$PRESIGN_TOOL" \
+      --endpoint "$R2_S3_ENDPOINT" \
+      --bucket "$R2_BUCKET" \
+      --key "${R2_OBJECT_KEY:-state/live-state.json}" \
+      --access-key-id "$R2_ACCESS_KEY_ID" \
+      --secret-access-key "$R2_SECRET_ACCESS_KEY" \
+      --region "${R2_REGION:-auto}" \
+      --expires "${R2_PRESIGN_TTL_SECS:-604800}"
+  )"
+fi
+
 if [ ! -d "$SITE_DIR/node_modules" ]; then
   echo "[dashboard] installing site dependencies..."
   (cd "$SITE_DIR" && npm install)
@@ -59,6 +79,9 @@ echo "[dashboard] research log: $RESEARCH_LOG"
 echo "[dashboard] orchestrate log: $ORCHESTRATE_LOG"
 echo "[dashboard] dashboard log: $DASHBOARD_LOG"
 echo "[dashboard] state json: $STATE_JSON"
+if [ -n "$R2_PUBLIC_URL" ]; then
+  echo "[dashboard] public state url: $R2_PUBLIC_URL"
+fi
 
 : >"$HTTP_LOG"
 : >"$AGG_LOG"
@@ -85,8 +108,8 @@ STATE_SYNC_CMD=(
   --output-json "$STATE_JSON"
 )
 
-if [ -n "${R2_ENDPOINT:-}" ]; then
-  STATE_SYNC_CMD+=(--r2-endpoint "$R2_ENDPOINT")
+if [ -n "$R2_UPLOAD_URL" ]; then
+  STATE_SYNC_CMD+=(--r2-endpoint "$R2_UPLOAD_URL")
 else
   STATE_SYNC_CMD+=(--dry-run)
 fi
