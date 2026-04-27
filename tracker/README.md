@@ -74,6 +74,26 @@ Responsibilities:
 - attach latest git commit metadata,
 - upload every cycle.
 
+In native Millrace mode, `state_sync.py` can also run as an event-driven
+publisher:
+
+```bash
+python3 state_sync.py \
+  --millrace-workspace /path/to/workspace \
+  --repo-path /path/to/product/repo \
+  --run-id millrace-live \
+  --event-driven \
+  --event-heartbeat-seconds 600 \
+  --r2-endpoint 'https://your-presigned-put-url.example/state/live-state.json'
+```
+
+Event mode watches Millrace runtime artifacts such as `runtime_snapshot.json`,
+stage result files, task/spec queue documents, closure targets, and git commit
+metadata. It uploads when those artifacts change, with a debounce window for
+bursty stage transitions, plus a low-frequency heartbeat as a recovery guard.
+The dashboard advances runtime and stage timers locally between uploaded
+snapshots, so the UI stays live without requiring constant tracker uploads.
+
 ## Quick start
 
 ### Compiler run example

@@ -25,6 +25,22 @@ function toPositiveNumber(value: number | string | null | undefined): number {
   return Number(numeric);
 }
 
+function toPositiveNumberOrNull(value: number | string | null | undefined): number | null {
+  const numeric = toPositiveNumber(value);
+  return numeric > 0 ? numeric : null;
+}
+
+function normalizeSyncMode(value: string | null | undefined): DashboardSnapshot['tracker']['syncMode'] {
+  const normalized = value?.toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'event_driven') {
+    return 'event_driven';
+  }
+  if (normalized === 'interval') {
+    return 'interval';
+  }
+  return 'unknown';
+}
+
 function normalizeActiveLoop(value: string | null | undefined): ActiveLoop {
   const normalized = value?.toLowerCase().replace(/[\s-]+/g, '_');
   if (normalized === 'planning' || normalized === 'research') {
@@ -146,6 +162,11 @@ export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
     timestamp: raw.timestamp ?? null,
     runId: raw.run_id ?? null,
     elapsedSeconds: toPositiveNumber(raw.elapsed_seconds),
+    tracker: {
+      syncMode: normalizeSyncMode(raw.tracker?.sync_mode ?? null),
+      heartbeatSeconds: toPositiveNumberOrNull(raw.tracker?.heartbeat_seconds),
+      debounceSeconds: toPositiveNumberOrNull(raw.tracker?.debounce_seconds),
+    },
     loop: {
       activeLoop,
       researchMode,

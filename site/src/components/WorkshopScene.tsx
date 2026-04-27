@@ -54,12 +54,13 @@ function getRuntimeLine(snapshot: DashboardSnapshot): string {
 }
 
 function getStageRuntimeSeconds(snapshot: DashboardSnapshot): number {
-  if (!snapshot.pipeline.agentStartedAt || !snapshot.timestamp) {
+  if (!snapshot.pipeline.agentStartedAt) {
     return 0;
   }
 
   const startedAtMs = Date.parse(snapshot.pipeline.agentStartedAt);
-  const timestampMs = Date.parse(snapshot.timestamp);
+  const running = snapshot.runtime.processRunning && !snapshot.runtime.paused && !snapshot.runtime.stopRequested;
+  const timestampMs = running ? Date.now() : snapshot.timestamp ? Date.parse(snapshot.timestamp) : NaN;
   if (!Number.isFinite(startedAtMs) || !Number.isFinite(timestampMs)) {
     return 0;
   }

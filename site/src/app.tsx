@@ -10,6 +10,7 @@ export function App() {
     logLines,
     showStaleIndicator,
     staleAgeSeconds,
+    lastEventAgeSeconds,
   } = useDashboardData();
 
   return (
@@ -23,6 +24,7 @@ export function App() {
           snapshot={snapshot}
           showStaleIndicator={showStaleIndicator}
           staleAgeSeconds={staleAgeSeconds}
+          lastEventAgeSeconds={lastEventAgeSeconds}
         />
       </div>
     </main>

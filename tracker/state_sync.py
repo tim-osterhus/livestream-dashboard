@@ -27,6 +27,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -41,9 +42,18 @@ try:
 except ImportError:  # pragma: no cover - Python 3.9+ should have zoneinfo
     ZoneInfo = None  # type: ignore
 
+try:
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+except ImportError:  # pragma: no cover - watchdog is optional
+    FileSystemEventHandler = None  # type: ignore[assignment]
+    Observer = None  # type: ignore[assignment]
+
 SYNC_INTERVAL_DEFAULT = 60.0
 RETRY_DELAY_DEFAULT = 5.0
 HTTP_TIMEOUT_DEFAULT = 10.0
+EVENT_DEBOUNCE_DEFAULT = 1.0
+EVENT_HEARTBEAT_DEFAULT = 600.0
 DEFAULT_TEST_SUITES = ["runtime", "queue", "closure", "site"]
 DEFAULT_AGENT_VALUE_STYLE = "blob"
 DEFAULT_LOG_TAIL = 10
@@ -162,6 +172,9 @@ class TrackerConfig:
     agent_value_style: str
     test_suites: List[str]
     log_tail_size: int
+    event_driven: bool = False
+    event_debounce_seconds: float = EVENT_DEBOUNCE_DEFAULT
+    event_heartbeat_seconds: float = EVENT_HEARTBEAT_DEFAULT
     once: bool = False
     dry_run: bool = False
     stdout_json: bool = False
@@ -202,11 +215,95 @@ class StateSync:
         self._init_tests()
 
     def run_forever(self) -> None:
+        if self.config.once:
+            self.process_cycle()
+            return
+        if self.config.event_driven:
+            self._run_event_driven()
+            return
+        self._run_interval_loop()
+
+    def _run_interval_loop(self) -> None:
         while True:
             self.process_cycle()
-            if self.config.once or STOP_REQUESTED:
+            if STOP_REQUESTED:
                 break
             self._interruptible_sleep(self.config.sync_interval)
+
+    def _run_event_driven(self) -> None:
+        if Observer is None or FileSystemEventHandler is None:
+            print("[state_sync] watchdog unavailable; falling back to interval sync", file=sys.stderr)
+            self._run_interval_loop()
+            return
+
+        pending = threading.Event()
+        syncer = self
+
+        class Handler(FileSystemEventHandler):  # type: ignore[misc, valid-type]
+            def on_any_event(self, event: object) -> None:
+                src_path = getattr(event, "src_path", "")
+                dest_path = getattr(event, "dest_path", "")
+                paths = [Path(value) for value in (src_path, dest_path) if value]
+                if any(syncer._is_relevant_event_path(path) for path in paths):
+                    pending.set()
+
+        observer = Observer()  # type: ignore[operator]
+        handler = Handler()
+        scheduled: Set[str] = set()
+        for root, recursive in self._event_watch_specs():
+            if not root.exists():
+                continue
+            watch_root = root if root.is_dir() else root.parent
+            key = f"{watch_root.resolve()}:{recursive}"
+            if key in scheduled:
+                continue
+            observer.schedule(handler, str(watch_root), recursive=recursive)
+            scheduled.add(key)
+
+        if not scheduled:
+            print("[state_sync] no event watch paths exist; falling back to interval sync", file=sys.stderr)
+            self._run_interval_loop()
+            return
+
+        self.process_cycle()
+        print(
+            (
+                f"[state_sync] event-driven sync active; watching {len(scheduled)} roots; "
+                f"heartbeat={self._format_duration(int(self.config.event_heartbeat_seconds))}"
+            ),
+            file=sys.stderr,
+        )
+
+        observer.start()
+        try:
+            while not STOP_REQUESTED:
+                heartbeat = max(0.0, self.config.event_heartbeat_seconds)
+                timeout = heartbeat if heartbeat > 0 else 1.0
+                triggered = pending.wait(timeout)
+                if STOP_REQUESTED:
+                    break
+                if triggered:
+                    pending.clear()
+                    self._wait_for_event_quiet(pending)
+                    self.process_cycle()
+                elif heartbeat > 0:
+                    self.process_cycle()
+        finally:
+            observer.stop()
+            observer.join(timeout=5)
+
+    def _wait_for_event_quiet(self, pending: threading.Event) -> None:
+        debounce = max(0.0, self.config.event_debounce_seconds)
+        if debounce <= 0:
+            return
+        deadline = time.time() + debounce
+        while not STOP_REQUESTED:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return
+            if pending.wait(remaining):
+                pending.clear()
+                deadline = time.time() + debounce
 
     def process_cycle(self) -> None:
         self._ingest_new_dashboard_lines()
@@ -390,6 +487,7 @@ class StateSync:
             "timestamp": now_utc.isoformat().replace("+00:00", "Z"),
             "run_id": self.config.run_id,
             "elapsed_seconds": elapsed_seconds,
+            "tracker": self._tracker_blob(),
             "loop": {
                 "active_loop": active_loop,
                 "research_mode": research_mode,
@@ -413,6 +511,13 @@ class StateSync:
             "log_lines": list(self.state.log_lines)[-self.config.log_tail_size :],
         }
         return blob
+
+    def _tracker_blob(self) -> Dict[str, object]:
+        return {
+            "sync_mode": "event_driven" if self.config.event_driven else "interval",
+            "heartbeat_seconds": int(self.config.event_heartbeat_seconds) if self.config.event_driven else None,
+            "debounce_seconds": self.config.event_debounce_seconds if self.config.event_driven else None,
+        }
 
     def _build_tasks_array(self, current_task_index: int, total_tasks: int) -> List[Dict[str, object]]:
         tasks: List[Dict[str, object]] = []
@@ -623,6 +728,15 @@ class StateSync:
             return datetime.fromtimestamp(dashboard_log.stat().st_mtime, tz=self.tzinfo).date()
         return datetime.now(self.tzinfo).date()
 
+    def _event_watch_specs(self) -> List[Tuple[Path, bool]]:
+        return [(self.config.dashboard_log.parent, False)]
+
+    def _is_relevant_event_path(self, path: Path) -> bool:
+        try:
+            return path.resolve() == self.config.dashboard_log.resolve()
+        except OSError:
+            return path.absolute() == self.config.dashboard_log.absolute()
+
 
 class NativeMillraceStateSync(StateSync):
     """Build the public dashboard blob from Millrace runtime artifacts."""
@@ -652,8 +766,10 @@ class NativeMillraceStateSync(StateSync):
         active_work_item_id = self._string(snapshot.get("active_work_item_id"))
         active_since = self._string(snapshot.get("active_since"))
         started_at = self._string(snapshot.get("started_at"))
-        updated_at = self._string(snapshot.get("updated_at")) or now_utc.isoformat().replace("+00:00", "Z")
-        elapsed_seconds = self._elapsed_seconds(started_at, now_utc)
+        published_at = now_utc.isoformat().replace("+00:00", "Z")
+        snapshot_updated_at = self._string(snapshot.get("updated_at")) or published_at
+        elapsed_anchor = started_at or self._earliest_started_at(runs) or active_since
+        elapsed_seconds = self._elapsed_seconds(elapsed_anchor, now_utc)
         current_model = self._string(latest_run.get("model_name"))
 
         tasks = self._work_items_for_dashboard(agents, active_stage=active_stage)
@@ -666,7 +782,7 @@ class NativeMillraceStateSync(StateSync):
             snapshot=snapshot,
             queue_counts=queue_counts,
             runs=runs,
-            updated_at=updated_at,
+            updated_at=snapshot_updated_at,
         )
 
         active_mode = self._string(snapshot.get("active_mode_id")) or self._string(compiled_plan.get("mode_id"))
@@ -679,9 +795,10 @@ class NativeMillraceStateSync(StateSync):
         }
 
         return {
-            "timestamp": updated_at,
+            "timestamp": published_at,
             "run_id": self.config.run_id,
             "elapsed_seconds": elapsed_seconds,
+            "tracker": self._tracker_blob(),
             "loop": {
                 "active_loop": active_plane,
                 "research_mode": None,
@@ -723,6 +840,8 @@ class NativeMillraceStateSync(StateSync):
                 "learning_status_marker": self._string(snapshot.get("learning_status_marker")),
                 "current_failure_class": self._string(snapshot.get("current_failure_class")),
                 "watcher_mode": self._string(snapshot.get("watcher_mode")),
+                "snapshot_updated_at": snapshot_updated_at,
+                "elapsed_anchor_at": elapsed_anchor,
                 "baseline_seed_package_version": self._string(baseline_manifest.get("seed_package_version")),
                 "closure": closure,
             },
@@ -811,11 +930,26 @@ class NativeMillraceStateSync(StateSync):
             return runs
         for run_dir in sorted(path for path in runs_dir.iterdir() if path.is_dir()):
             stage_results = sorted((run_dir / "stage_results").glob("*.json"))
+            token_usage = self._run_dir_token_usage(run_dir, stage_results)
+            invocation = self._latest_json(run_dir, "runner_invocation.*.json")
+            completion = self._latest_json(run_dir, "runner_completion.*.json")
             if not stage_results:
-                runs.append({"run_id": run_dir.name, "status": "incomplete"})
+                runs.append(
+                    {
+                        "run_id": run_dir.name,
+                        "status": "incomplete",
+                        "stage": self._string(invocation.get("stage")) or self._string(completion.get("stage")),
+                        "model_name": self._string(invocation.get("model_name"))
+                        or self._string(completion.get("model_name")),
+                        "started_at": self._string(completion.get("started_at"))
+                        or self._string(invocation.get("started_at"))
+                        or self._string(invocation.get("emitted_at")),
+                        "completed_at": self._string(completion.get("ended_at")),
+                        "token_usage": token_usage,
+                    }
+                )
                 continue
             latest = self._read_json(stage_results[-1])
-            token_usage = latest.get("token_usage") if isinstance(latest.get("token_usage"), dict) else {}
             runs.append(
                 {
                     "run_id": run_dir.name,
@@ -824,7 +958,9 @@ class NativeMillraceStateSync(StateSync):
                     "result_class": self._string(latest.get("result_class")),
                     "work_item_kind": self._string(latest.get("work_item_kind")),
                     "work_item_id": self._string(latest.get("work_item_id")),
-                    "model_name": self._string(latest.get("model_name")),
+                    "model_name": self._string(latest.get("model_name"))
+                    or self._string(invocation.get("model_name"))
+                    or self._string(completion.get("model_name")),
                     "started_at": self._string(latest.get("started_at")),
                     "completed_at": self._string(latest.get("completed_at")),
                     "token_usage": token_usage,
@@ -833,9 +969,146 @@ class NativeMillraceStateSync(StateSync):
         runs.sort(key=lambda item: str(item.get("completed_at") or item.get("run_id") or ""))
         return runs
 
+    def _event_watch_specs(self) -> List[Tuple[Path, bool]]:
+        workspace = self.config.millrace_workspace
+        assert workspace is not None
+        agents = workspace.expanduser().resolve() / "millrace-agents"
+        specs: List[Tuple[Path, bool]] = [
+            (agents / "state", False),
+            (agents / "runs", True),
+            (agents / "tasks", True),
+            (agents / "specs", True),
+            (agents / "incidents", True),
+            (agents / "learning", True),
+            (agents / "arbiter" / "targets", True),
+            (agents / "state" / "mailbox", True),
+        ]
+        if self.config.repo_path:
+            git_dir = self.config.repo_path / ".git"
+            if git_dir.exists():
+                specs.append((git_dir, True))
+        return specs
+
+    def _is_relevant_event_path(self, path: Path) -> bool:
+        workspace = self.config.millrace_workspace
+        assert workspace is not None
+        agents = workspace.expanduser().resolve() / "millrace-agents"
+        absolute = path.absolute()
+        parts = absolute.parts
+
+        state_dir = agents / "state"
+        if absolute.parent == state_dir and absolute.name in {
+            "runtime_snapshot.json",
+            "compiled_plan.json",
+            "baseline_manifest.json",
+            "compile_diagnostics.json",
+        }:
+            return True
+
+        if "stage_results" in parts and absolute.suffix == ".json":
+            return True
+        if absolute.name.startswith("runner_completion.") and absolute.suffix == ".json":
+            return True
+
+        for root_name in ("tasks", "specs", "incidents", "learning"):
+            root = agents / root_name
+            if self._path_is_relative_to(absolute, root) and absolute.suffix in {".md", ".json"}:
+                return True
+
+        if self._path_is_relative_to(absolute, agents / "arbiter" / "targets") and absolute.suffix == ".json":
+            return True
+        if self._path_is_relative_to(absolute, agents / "state" / "mailbox") and absolute.suffix == ".json":
+            return True
+
+        if self.config.repo_path:
+            git_dir = (self.config.repo_path / ".git").absolute()
+            if self._path_is_relative_to(absolute, git_dir):
+                return absolute.name in {"HEAD", "index", "packed-refs"} or "refs" in absolute.parts
+
+        return False
+
+    def _run_dir_token_usage(self, run_dir: Path, stage_results: List[Path]) -> Dict[str, int]:
+        stage_usage = self._sum_usage_dicts(
+            self._read_json(path).get("token_usage")
+            for path in stage_results
+        )
+        if self._has_token_usage(stage_usage):
+            return stage_usage
+
+        completion_usage = self._sum_usage_dicts(
+            self._read_json(path).get("token_usage")
+            for path in sorted(run_dir.glob("runner_completion.*.json"))
+        )
+        if self._has_token_usage(completion_usage):
+            return completion_usage
+
+        event_paths = sorted(run_dir.glob("runner_events.*.jsonl"))
+        if event_paths:
+            return self._sum_usage_dicts(
+                usage
+                for path in event_paths
+                for usage in self._usage_events_from_jsonl(path)
+            )
+
+        stdout_paths = sorted(run_dir.glob("runner_stdout.*.txt"))
+        return self._sum_usage_dicts(
+            usage
+            for path in stdout_paths
+            for usage in self._usage_events_from_jsonl(path)
+        )
+
+    @staticmethod
+    def _sum_usage_dicts(usages: Iterable[object]) -> Dict[str, int]:
+        totals = {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0,
+        }
+        for usage in usages:
+            if not isinstance(usage, dict):
+                continue
+            for key in totals:
+                value = usage.get(key)
+                if isinstance(value, int):
+                    totals[key] += max(0, value)
+        return totals
+
+    @staticmethod
+    def _has_token_usage(usage: Dict[str, int]) -> bool:
+        return any(value > 0 for value in usage.values())
+
+    def _usage_events_from_jsonl(self, path: Path) -> Iterable[Dict[str, int]]:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return []
+
+        usages: List[Dict[str, int]] = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "turn.completed":
+                continue
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                usages.append(self._sum_usage_dicts((usage,)))
+        return usages
+
+    def _latest_json(self, run_dir: Path, pattern: str) -> Dict[str, object]:
+        paths = sorted(run_dir.glob(pattern), key=lambda path: path.stat().st_mtime if path.exists() else 0)
+        return self._read_json(paths[-1]) if paths else {}
+
     @staticmethod
     def _aggregate_run_tokens(runs: List[Dict[str, object]]) -> Dict[str, int]:
-        totals = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
+        totals = {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0,
+        }
         for run in runs:
             usage = run.get("token_usage")
             if not isinstance(usage, dict):
@@ -845,6 +1118,11 @@ class NativeMillraceStateSync(StateSync):
                 if isinstance(value, int):
                     totals[key] += max(0, value)
         return totals
+
+    @staticmethod
+    def _earliest_started_at(runs: List[Dict[str, object]]) -> Optional[str]:
+        candidates = [run.get("started_at") for run in runs if isinstance(run.get("started_at"), str)]
+        return min(candidates) if candidates else None
 
     def _read_closure_targets(self, targets_dir: Path) -> List[Dict[str, object]]:
         targets: List[Dict[str, object]] = []
@@ -924,10 +1202,25 @@ class NativeMillraceStateSync(StateSync):
             return "--:--:--"
         return parsed.astimezone(timezone.utc).strftime("%H:%M:%S")
 
+    @staticmethod
+    def _path_is_relative_to(path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root.absolute())
+            return True
+        except ValueError:
+            return False
+
 
 def _parse_test_suites(raw: str) -> List[str]:
     suites = [re.sub(r"[^a-z0-9_]+", "_", item.strip().lower()).strip("_") for item in raw.split(",")]
     return [suite for suite in suites if suite] or DEFAULT_TEST_SUITES[:]
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> TrackerConfig:
@@ -966,6 +1259,19 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> TrackerConfig:
         help="Comma-separated suite keys. Defaults are compiler-oriented.",
     )
     parser.add_argument("--log-tail-size", type=int, default=int(os.getenv("LOG_TAIL_SIZE", DEFAULT_LOG_TAIL)))
+    parser.set_defaults(event_driven=_env_bool("STATE_SYNC_EVENT_DRIVEN", _env_bool("EVENT_DRIVEN", False)))
+    parser.add_argument("--event-driven", dest="event_driven", action="store_true", help="Sync on filesystem events with a heartbeat.")
+    parser.add_argument("--no-event-driven", dest="event_driven", action="store_false", help="Use fixed-interval sync.")
+    parser.add_argument(
+        "--event-debounce-seconds",
+        type=float,
+        default=float(os.getenv("EVENT_DEBOUNCE_SECONDS", EVENT_DEBOUNCE_DEFAULT)),
+    )
+    parser.add_argument(
+        "--event-heartbeat-seconds",
+        type=float,
+        default=float(os.getenv("EVENT_HEARTBEAT_SECONDS", EVENT_HEARTBEAT_DEFAULT)),
+    )
     parser.add_argument("--once", action="store_true", help="Run one ingest/sync cycle and exit.")
     parser.add_argument("--dry-run", action="store_true", help="Build state but skip network upload.")
     parser.add_argument("--stdout-json", action="store_true", help="Print the JSON blob to stdout each cycle.")
@@ -990,6 +1296,9 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> TrackerConfig:
         agent_value_style=args.agent_value_style,
         test_suites=_parse_test_suites(args.test_suites),
         log_tail_size=max(1, args.log_tail_size),
+        event_driven=bool(args.event_driven),
+        event_debounce_seconds=max(0.0, args.event_debounce_seconds),
+        event_heartbeat_seconds=max(0.0, args.event_heartbeat_seconds),
         once=args.once,
         dry_run=args.dry_run,
         stdout_json=args.stdout_json,

@@ -14,6 +14,7 @@ interface MetricsSidebarProps {
   snapshot: DashboardSnapshot;
   showStaleIndicator: boolean;
   staleAgeSeconds: number | null;
+  lastEventAgeSeconds: number | null;
 }
 
 const PLANES: ActiveLoop[] = ['execution', 'planning', 'learning'];
@@ -57,7 +58,7 @@ function MetricLine({ label, value }: { label: string; value: any }) {
   );
 }
 
-export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }: MetricsSidebarProps) {
+export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, lastEventAgeSeconds }: MetricsSidebarProps) {
   const completedTasks = getCompletedTaskCount(snapshot);
   const progressRatio = countProgress(completedTasks, snapshot.pipeline.totalTasks || snapshot.tasks.length);
   const progressBreakdown = getProgressBreakdown(snapshot);
@@ -68,6 +69,12 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
   const planState = snapshot.runtime.compiledPlanCurrentness || '--';
   const latestHash = snapshot.latestCommit.hash ? snapshot.latestCommit.hash.slice(0, 7) : '--';
   const latestMessage = snapshot.latestCommit.message || '--';
+  const feedLabel = snapshot.tracker.syncMode === 'event_driven' ? 'Event feed' : 'Polling live';
+  const feedSubline = showStaleIndicator
+    ? `Last fetch ${formatTimestampAge(staleAgeSeconds)}`
+    : snapshot.tracker.syncMode === 'event_driven'
+      ? `Last event ${formatTimestampAge(lastEventAgeSeconds)}`
+      : 'state feed connected';
 
   const [commitFlash, setCommitFlash] = useState(false);
   const previousCommitHashRef = useRef(snapshot.latestCommit.hash);
@@ -145,11 +152,9 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
 
       <MetricGroup label="Feed">
         <div className={`metric-value ${showStaleIndicator ? 'metric-value--warning' : 'metric-value--positive'}`}>
-          {showStaleIndicator ? 'Tracker stale' : 'Polling live'}
+          {showStaleIndicator ? 'Feed stale' : feedLabel}
         </div>
-        <div className="metric-subline">
-          {showStaleIndicator ? `Last updated ${formatTimestampAge(staleAgeSeconds)}` : 'state feed connected'}
-        </div>
+        <div className="metric-subline">{feedSubline}</div>
         <div className="metric-subline">public state / live-state.json</div>
       </MetricGroup>
     </aside>

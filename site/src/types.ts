@@ -53,6 +53,11 @@ export interface RawDashboardPayload {
   timestamp?: string;
   run_id?: string;
   elapsed_seconds?: number;
+  tracker?: {
+    sync_mode?: string | null;
+    heartbeat_seconds?: number | string | null;
+    debounce_seconds?: number | string | null;
+  };
   loop?: {
     active_loop?: string;
     research_mode?: string | null;
@@ -166,10 +171,17 @@ export interface DashboardRuntime {
   };
 }
 
+export interface DashboardTracker {
+  syncMode: 'event_driven' | 'interval' | 'unknown';
+  heartbeatSeconds: number | null;
+  debounceSeconds: number | null;
+}
+
 export interface DashboardSnapshot {
   timestamp: string | null;
   runId: string | null;
   elapsedSeconds: number;
+  tracker: DashboardTracker;
   loop: {
     activeLoop: ActiveLoop;
     researchMode: ResearchMode;

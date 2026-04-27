@@ -19,6 +19,7 @@ export interface DashboardDataState {
   isInitialLoading: boolean;
   showStaleIndicator: boolean;
   staleAgeSeconds: number | null;
+  lastEventAgeSeconds: number | null;
 }
 
 export function useDashboardData(): DashboardDataState {
@@ -27,8 +28,9 @@ export function useDashboardData(): DashboardDataState {
   const [logLines, setLogLines] = useState(createIdleSnapshot().logLines as string[]);
   const [previousAgent, setPreviousAgent] = useState(null as CanonicalAgent | null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [consecutiveUnchangedPolls, setConsecutiveUnchangedPolls] = useState(0);
+  const [consecutiveFetchFailures, setConsecutiveFetchFailures] = useState(0);
   const [lastChangedAtMs, setLastChangedAtMs] = useState(null as number | null);
+  const [lastFetchSucceededAtMs, setLastFetchSucceededAtMs] = useState(null as number | null);
   const [nowMs, setNowMs] = useState(Date.now());
 
   const snapshotRef = useRef(snapshot);
@@ -101,26 +103,26 @@ export function useDashboardData(): DashboardDataState {
             : null);
 
         if (!rawPayload) {
+          setConsecutiveFetchFailures((current: number) => current + 1);
           setIsInitialLoading(false);
           return;
         }
 
+        const fetchedAtMs = Date.now();
+        setLastFetchSucceededAtMs(fetchedAtMs);
+        setConsecutiveFetchFailures(0);
+
         const normalizedSnapshot = normalizeSnapshot(rawPayload);
         const payloadSignature = JSON.stringify(rawPayload);
         const previousSnapshot = snapshotRef.current;
-        const previousTimestamp = previousSnapshot.timestamp;
-        const isUnchanged =
-          payloadSignature === signatureRef.current ||
-          (normalizedSnapshot.timestamp !== null && normalizedSnapshot.timestamp === previousTimestamp);
+        const isUnchanged = payloadSignature === signatureRef.current;
 
         if (isUnchanged) {
-          setConsecutiveUnchangedPolls((current: number) => current + 1);
           setIsInitialLoading(false);
           return;
         }
 
         signatureRef.current = payloadSignature;
-        setConsecutiveUnchangedPolls(0);
         setPreviousAgent(
           previousSnapshot.pipeline.currentAgent !== normalizedSnapshot.pipeline.currentAgent
             ? previousSnapshot.pipeline.currentAgent
@@ -135,6 +137,7 @@ export function useDashboardData(): DashboardDataState {
         setLastChangedAtMs(nextChangedAt);
         setIsInitialLoading(false);
       } catch {
+        setConsecutiveFetchFailures((current: number) => current + 1);
         setIsInitialLoading(false);
       }
     };
@@ -156,18 +159,45 @@ export function useDashboardData(): DashboardDataState {
     };
   }, [config]);
 
-  const staleAgeSeconds = lastChangedAtMs === null ? null : Math.max(0, Math.floor((nowMs - lastChangedAtMs) / 1000));
-  const showStaleIndicator =
-    lastChangedAtMs !== null &&
-    consecutiveUnchangedPolls >= (config?.staleAfterConsecutiveUnchangedPolls ?? 2);
+  const lastEventAgeSeconds = lastChangedAtMs === null ? null : Math.max(0, Math.floor((nowMs - lastChangedAtMs) / 1000));
+  const staleAgeSeconds =
+    lastFetchSucceededAtMs === null ? null : Math.max(0, Math.floor((nowMs - lastFetchSucceededAtMs) / 1000));
+  const showStaleIndicator = consecutiveFetchFailures >= (config?.staleAfterConsecutiveUnchangedPolls ?? 2);
+  const liveSnapshot = withLiveStopwatches(snapshot, nowMs);
 
   return {
     config,
-    snapshot,
+    snapshot: liveSnapshot,
     logLines,
     previousAgent,
     isInitialLoading,
     showStaleIndicator,
     staleAgeSeconds,
+    lastEventAgeSeconds,
+  };
+}
+
+function shouldAdvanceStopwatches(snapshot: DashboardSnapshot): boolean {
+  return snapshot.runtime.processRunning && !snapshot.runtime.paused && !snapshot.runtime.stopRequested;
+}
+
+function withLiveStopwatches(snapshot: DashboardSnapshot, nowMs: number): DashboardSnapshot {
+  if (!shouldAdvanceStopwatches(snapshot)) {
+    return snapshot;
+  }
+
+  const snapshotAtMs = parseTimestampToMs(snapshot.timestamp);
+  if (snapshotAtMs === null) {
+    return snapshot;
+  }
+
+  const elapsedDeltaSeconds = Math.max(0, Math.floor((nowMs - snapshotAtMs) / 1000));
+  if (elapsedDeltaSeconds <= 0) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    elapsedSeconds: snapshot.elapsedSeconds + elapsedDeltaSeconds,
   };
 }

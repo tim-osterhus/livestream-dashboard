@@ -46,6 +46,11 @@ export const IDLE_SNAPSHOT: DashboardSnapshot = {
   timestamp: null,
   runId: null,
   elapsedSeconds: 0,
+  tracker: {
+    syncMode: 'unknown',
+    heartbeatSeconds: null,
+    debounceSeconds: null,
+  },
   loop: {
     activeLoop: 'execution',
     researchMode: null,
