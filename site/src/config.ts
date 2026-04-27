@@ -2,6 +2,7 @@ import type { ResolvedConfig, RuntimeConfig } from './types.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_STALE_POLLS = 2;
+const LOCAL_STATE_ENDPOINT = './state/live-state.json';
 
 function normalizeMockMode(value: string | null): string {
   switch ((value || '').toLowerCase()) {
@@ -19,12 +20,17 @@ function normalizeMockMode(value: string | null): string {
   }
 }
 
+function isLocalDashboardOrigin(): boolean {
+  return ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(window.location.hostname);
+}
+
 function toResolvedConfig(raw: RuntimeConfig, searchParams: URLSearchParams): ResolvedConfig {
   const sourceOverride = searchParams.get('source');
   const mockOverride = searchParams.get('mock');
   const pollOverride = searchParams.get('interval');
   const mockMode = normalizeMockMode(mockOverride || raw.mockMode || 'compiler');
-  const fallbackEndpoint = raw.useMockWhenEndpointMissing !== false ? `./mock/${mockMode}-run.json` : null;
+  const fallbackEndpoint =
+    raw.useMockWhenEndpointMissing !== false ? `./mock/${mockMode}-run.json` : LOCAL_STATE_ENDPOINT;
   const pollIntervalMs = Math.max(5_000, Number.parseInt(pollOverride ?? '', 10) || raw.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS);
   const staleAfterConsecutiveUnchangedPolls = Math.max(
     1,
@@ -36,6 +42,16 @@ function toResolvedConfig(raw: RuntimeConfig, searchParams: URLSearchParams): Re
       endpoint: sourceOverride,
       fallbackEndpoint,
       endpointLabel: sourceOverride,
+      pollIntervalMs,
+      staleAfterConsecutiveUnchangedPolls,
+    };
+  }
+
+  if (isLocalDashboardOrigin() && raw.r2Endpoint && raw.r2Endpoint.trim()) {
+    return {
+      endpoint: fallbackEndpoint,
+      fallbackEndpoint: null,
+      endpointLabel: 'local-state',
       pollIntervalMs,
       staleAfterConsecutiveUnchangedPolls,
     };

@@ -1,125 +1,117 @@
+import { EXECUTION_STAGES, LEARNING_STAGES, PLANNING_STAGES } from './constants.js';
 import type { ActiveLoop, CanonicalAgent, PipelineStage, ResearchMode, WorkerDefinition } from './types.js';
 
-export const ORCHESTRATION_WORKERS: WorkerDefinition[] = [
-  { id: 'start', displayName: 'Builder', color: '#6B3D3D' },
-  { id: 'integrate', displayName: 'Integrator', color: '#3D5A6B' },
-  { id: 'check', displayName: 'QA', color: '#5A5A3D' },
-  { id: 'hotfix', displayName: 'Hotfix', color: '#4A6B3D' },
-  { id: 'doublecheck', displayName: 'Doublecheck', color: '#3D4A5A' },
-  { id: 'consult', displayName: 'Consult', color: '#6B3D5A' },
-  { id: 'troubleshoot', displayName: 'Troubleshoot', color: '#5A3D4A' },
-  { id: 'update', displayName: 'Update', color: '#6B5A4A' },
+export const EXECUTION_WORKERS: WorkerDefinition[] = [
+  { id: 'builder', displayName: 'Builder', color: '#4ee0cf' },
+  { id: 'checker', displayName: 'Checker', color: '#8fb7ff' },
+  { id: 'fixer', displayName: 'Fixer', color: '#c5a15b' },
+  { id: 'doublechecker', displayName: 'Doublechecker', color: '#7bbf84' },
+  { id: 'updater', displayName: 'Updater', color: '#ddd6c4' },
+  { id: 'troubleshooter', displayName: 'Troubleshooter', color: '#d87878' },
+  { id: 'consultant', displayName: 'Consultant', color: '#b494d6' },
 ];
 
-const GOALSPEC_WORKERS: WorkerDefinition[] = [
-  { id: 'goal_intake', displayName: 'Goal Intake', color: '#42526B' },
-  { id: 'spec_synthesis', displayName: 'Spec Synthesis', color: '#3D6670' },
-  { id: 'spec_review', displayName: 'Spec Review', color: '#4F5E8C' },
-  { id: 'critic', displayName: 'Critic', color: '#6A4C7D' },
-  { id: 'designer', displayName: 'Designer', color: '#5A6A83' },
-  { id: 'taskmaster', displayName: 'Taskmaster', color: '#486E74' },
-  { id: 'taskaudit', displayName: 'Task Audit', color: '#64738A' },
-  { id: 'objective_profile_sync', displayName: 'Objective Sync', color: '#43627A' },
-  { id: 'mechanic', displayName: 'Mechanic', color: '#4E5A68' },
+export const PLANNING_WORKERS: WorkerDefinition[] = [
+  { id: 'planner', displayName: 'Planner', color: '#4ee0cf' },
+  { id: 'manager', displayName: 'Manager', color: '#8fb7ff' },
+  { id: 'mechanic', displayName: 'Mechanic', color: '#c5a15b' },
+  { id: 'auditor', displayName: 'Auditor', color: '#7bbf84' },
+  { id: 'arbiter', displayName: 'Arbiter', color: '#ddd6c4' },
 ];
 
-const INCIDENT_WORKERS: WorkerDefinition[] = [
-  { id: 'incident_intake', displayName: 'Incident Intake', color: '#48647B' },
-  { id: 'incident_resolve', displayName: 'Incident Resolve', color: '#4F5C84' },
-  { id: 'incident_archive', displayName: 'Incident Archive', color: '#526C78' },
-  { id: 'taskmaster', displayName: 'Taskmaster', color: '#486E74' },
-  { id: 'taskaudit', displayName: 'Task Audit', color: '#64738A' },
-  { id: 'mechanic', displayName: 'Mechanic', color: '#4E5A68' },
-];
-
-const AUDIT_WORKERS: WorkerDefinition[] = [
-  { id: 'contractor', displayName: 'Contractor', color: '#5A6078' },
-  { id: 'audit_intake', displayName: 'Audit Intake', color: '#3E6077' },
-  { id: 'audit_validate', displayName: 'Audit Validate', color: '#55718B' },
-  { id: 'audit_gatekeeper', displayName: 'Audit Gatekeeper', color: '#5D4C79' },
-  { id: 'objective_profile_sync', displayName: 'Objective Sync', color: '#43627A' },
-  { id: 'mechanic', displayName: 'Mechanic', color: '#4E5A68' },
+export const LEARNING_WORKERS: WorkerDefinition[] = [
+  { id: 'analyst', displayName: 'Analyst', color: '#4ee0cf' },
+  { id: 'professor', displayName: 'Professor', color: '#8fb7ff' },
+  { id: 'curator', displayName: 'Curator', color: '#c5a15b' },
 ];
 
 export const WORKER_DEFINITIONS: Record<CanonicalAgent, WorkerDefinition> = {
-  start: ORCHESTRATION_WORKERS[0],
-  integrate: ORCHESTRATION_WORKERS[1],
-  check: ORCHESTRATION_WORKERS[2],
-  hotfix: ORCHESTRATION_WORKERS[3],
-  doublecheck: ORCHESTRATION_WORKERS[4],
-  consult: ORCHESTRATION_WORKERS[5],
-  troubleshoot: ORCHESTRATION_WORKERS[6],
-  update: ORCHESTRATION_WORKERS[7],
-  goal_intake: GOALSPEC_WORKERS[0],
-  spec_synthesis: GOALSPEC_WORKERS[1],
-  spec_review: GOALSPEC_WORKERS[2],
-  critic: GOALSPEC_WORKERS[3],
-  designer: GOALSPEC_WORKERS[4],
-  taskmaster: GOALSPEC_WORKERS[5],
-  taskaudit: GOALSPEC_WORKERS[6],
-  objective_profile_sync: GOALSPEC_WORKERS[7],
-  mechanic: GOALSPEC_WORKERS[8],
-  incident_intake: INCIDENT_WORKERS[0],
-  incident_resolve: INCIDENT_WORKERS[1],
-  incident_archive: INCIDENT_WORKERS[2],
-  contractor: AUDIT_WORKERS[0],
-  audit_intake: AUDIT_WORKERS[1],
-  audit_validate: AUDIT_WORKERS[2],
-  audit_gatekeeper: AUDIT_WORKERS[3],
+  builder: EXECUTION_WORKERS[0],
+  checker: EXECUTION_WORKERS[1],
+  fixer: EXECUTION_WORKERS[2],
+  doublechecker: EXECUTION_WORKERS[3],
+  updater: EXECUTION_WORKERS[4],
+  troubleshooter: EXECUTION_WORKERS[5],
+  consultant: EXECUTION_WORKERS[6],
+  planner: PLANNING_WORKERS[0],
+  manager: PLANNING_WORKERS[1],
+  mechanic: PLANNING_WORKERS[2],
+  auditor: PLANNING_WORKERS[3],
+  arbiter: PLANNING_WORKERS[4],
+  analyst: LEARNING_WORKERS[0],
+  professor: LEARNING_WORKERS[1],
+  curator: LEARNING_WORKERS[2],
 };
 
 const AGENT_STAGE_MAP: Record<CanonicalAgent, PipelineStage> = {
-  goal_intake: 'research',
-  spec_synthesis: 'research',
-  spec_review: 'research',
-  critic: 'research',
-  designer: 'research',
-  objective_profile_sync: 'research',
-  mechanic: 'research',
-  incident_intake: 'research',
-  incident_resolve: 'research',
-  incident_archive: 'research',
-  contractor: 'research',
-  audit_intake: 'research',
-  audit_validate: 'research',
-  audit_gatekeeper: 'research',
-  taskmaster: 'decompose',
-  taskaudit: 'decompose',
-  start: 'builder',
-  integrate: 'integrate',
-  check: 'qa',
-  hotfix: 'hotfix',
-  troubleshoot: 'hotfix',
-  doublecheck: 'doublecheck',
-  consult: 'finalize',
-  update: 'finalize',
+  builder: 'builder',
+  checker: 'checker',
+  fixer: 'fixer',
+  doublechecker: 'doublechecker',
+  updater: 'updater',
+  troubleshooter: 'troubleshooter',
+  consultant: 'consultant',
+  planner: 'planner',
+  manager: 'manager',
+  mechanic: 'mechanic',
+  auditor: 'auditor',
+  arbiter: 'arbiter',
+  analyst: 'analyst',
+  professor: 'professor',
+  curator: 'curator',
 };
 
 const KNOWN_AGENT_SET = new Set<CanonicalAgent>(Object.keys(WORKER_DEFINITIONS) as CanonicalAgent[]);
 
 const AGENT_ALIASES: Record<string, CanonicalAgent> = {
-  builder: 'start',
-  build: 'start',
-  start_large_plan: 'start',
-  start_large_execute: 'start',
-  refactor: 'start',
-  reassess: 'start',
-  integrator: 'integrate',
-  integration: 'integrate',
-  qa: 'check',
-  qa_plan: 'check',
-  qa_execute: 'check',
-  checker: 'check',
-  double_check: 'doublecheck',
-  doublecheck_qa: 'doublecheck',
-  trouble: 'troubleshoot',
-  goalintake: 'goal_intake',
-  articulate: 'goal_intake',
-  analyze: 'spec_synthesis',
-  clarify: 'spec_review',
-  objective_sync: 'objective_profile_sync',
-  sync: 'objective_profile_sync',
-  auditgatekeeper: 'audit_gatekeeper',
+  start: 'builder',
+  build: 'builder',
+  builder: 'builder',
+  integrator: 'builder',
+  integrate: 'builder',
+  start_large_plan: 'builder',
+  start_large_execute: 'builder',
+  refactor: 'builder',
+  reassess: 'builder',
+  qa: 'checker',
+  check: 'checker',
+  checker: 'checker',
+  qa_plan: 'checker',
+  qa_execute: 'checker',
+  hotfix: 'fixer',
+  fix: 'fixer',
+  fixer: 'fixer',
+  doublecheck: 'doublechecker',
+  double_check: 'doublechecker',
+  doublecheck_qa: 'doublechecker',
+  update: 'updater',
+  updater: 'updater',
+  trouble: 'troubleshooter',
+  troubleshoot: 'troubleshooter',
+  consult: 'consultant',
+  consultant: 'consultant',
+  goal_intake: 'planner',
+  goalintake: 'planner',
+  goalspec: 'planner',
+  articulate: 'planner',
+  spec_synthesis: 'manager',
+  analyze: 'manager',
+  designer: 'manager',
+  critic: 'auditor',
+  spec_review: 'auditor',
+  clarify: 'auditor',
+  taskmaster: 'manager',
+  taskaudit: 'auditor',
+  objective_profile_sync: 'manager',
+  objective_sync: 'manager',
+  incident_intake: 'manager',
+  incident_resolve: 'mechanic',
+  incident_archive: 'auditor',
+  contractor: 'manager',
+  audit_intake: 'auditor',
+  audit_validate: 'auditor',
+  audit_gatekeeper: 'arbiter',
+  auditgatekeeper: 'arbiter',
 };
 
 export function normalizeResearchMode(value: string | null | undefined): ResearchMode {
@@ -127,7 +119,7 @@ export function normalizeResearchMode(value: string | null | undefined): Researc
     return null;
   }
 
-  const normalized = value.toLowerCase().replace(/[\s-]+/g, '_');
+  const normalized = normalizeToken(value);
   if (normalized === 'goalspec' || normalized === 'goal_spec') {
     return 'goalspec';
   }
@@ -162,80 +154,58 @@ export function normalizeAgent(
     return AGENT_ALIASES[token];
   }
 
-  if (token.includes('build')) {
-    return 'start';
-  }
-  if (token.includes('integrat')) {
-    return 'integrate';
-  }
-  if (token === 'qa' || token.includes('check')) {
-    return token.includes('double') ? 'doublecheck' : 'check';
-  }
   if (token.includes('double')) {
-    return 'doublecheck';
+    return 'doublechecker';
   }
-  if (token.includes('hotfix')) {
-    return 'hotfix';
+  if (token.includes('check') || token === 'qa') {
+    return 'checker';
+  }
+  if (token.includes('fix') || token.includes('hotfix')) {
+    return 'fixer';
   }
   if (token.includes('troubleshoot')) {
-    return 'troubleshoot';
+    return 'troubleshooter';
   }
   if (token.includes('consult')) {
-    return 'consult';
+    return 'consultant';
   }
   if (token.includes('update')) {
-    return 'update';
+    return 'updater';
+  }
+  if (token.includes('build') || token.includes('integrat')) {
+    return 'builder';
   }
 
-  if (activeLoop === 'research') {
-    if (token.includes('goal')) {
-      return 'goal_intake';
+  if (activeLoop === 'planning') {
+    if (token.includes('arbiter') || token.includes('gate')) {
+      return 'arbiter';
     }
-    if (token.includes('synth')) {
-      return 'spec_synthesis';
+    if (token.includes('audit') || token.includes('review') || token.includes('critic')) {
+      return 'auditor';
     }
-    if (token.includes('review')) {
-      return 'spec_review';
-    }
-    if (token.includes('critic')) {
-      return 'critic';
-    }
-    if (token.includes('design')) {
-      return 'designer';
-    }
-    if (token.includes('taskmaster')) {
-      return 'taskmaster';
-    }
-    if (token.includes('taskaudit')) {
-      return 'taskaudit';
-    }
-    if (token.includes('objective') || token.includes('profile')) {
-      return 'objective_profile_sync';
-    }
-    if (token.includes('mechanic')) {
+    if (token.includes('mechanic') || token.includes('resolve')) {
       return 'mechanic';
     }
-    if (token.includes('incident')) {
-      if (token.includes('archive')) return 'incident_archive';
-      if (token.includes('resolve')) return 'incident_resolve';
-      return 'incident_intake';
-    }
-    if (token.includes('contract')) {
-      return 'contractor';
-    }
-    if (token.includes('audit')) {
-      if (token.includes('gate')) return 'audit_gatekeeper';
-      if (token.includes('valid')) return 'audit_validate';
-      return 'audit_intake';
-    }
-
-    if (researchMode === 'incident') {
-      return 'incident_intake';
+    if (token.includes('manager') || token.includes('task') || token.includes('synth')) {
+      return 'manager';
     }
     if (researchMode === 'audit') {
-      return 'audit_intake';
+      return 'auditor';
     }
-    return 'goal_intake';
+    if (researchMode === 'incident') {
+      return 'mechanic';
+    }
+    return 'planner';
+  }
+
+  if (activeLoop === 'learning') {
+    if (token.includes('professor')) {
+      return 'professor';
+    }
+    if (token.includes('curator')) {
+      return 'curator';
+    }
+    return 'analyst';
   }
 
   return null;
@@ -248,20 +218,24 @@ export function getDisplayName(agent: CanonicalAgent | null, fallback = '--'): s
   return WORKER_DEFINITIONS[agent]?.displayName ?? fallback;
 }
 
-export function getWorkerEnsemble(loop: ActiveLoop, researchMode: ResearchMode): WorkerDefinition[] {
-  if (loop === 'orchestration') {
-    return ORCHESTRATION_WORKERS;
+export function getWorkerEnsemble(loop: ActiveLoop, _researchMode: ResearchMode): WorkerDefinition[] {
+  if (loop === 'planning') {
+    return PLANNING_WORKERS;
   }
-
-  if (researchMode === 'incident') {
-    return INCIDENT_WORKERS;
+  if (loop === 'learning') {
+    return LEARNING_WORKERS;
   }
+  return EXECUTION_WORKERS;
+}
 
-  if (researchMode === 'audit') {
-    return AUDIT_WORKERS;
+export function getStageSequence(loop: ActiveLoop): PipelineStage[] {
+  if (loop === 'planning') {
+    return PLANNING_STAGES;
   }
-
-  return GOALSPEC_WORKERS;
+  if (loop === 'learning') {
+    return LEARNING_STAGES;
+  }
+  return EXECUTION_STAGES;
 }
 
 export function getPipelineStageForAgent(agent: CanonicalAgent | null): PipelineStage | null {

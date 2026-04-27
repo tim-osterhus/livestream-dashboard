@@ -1,41 +1,39 @@
-export type ActiveLoop = 'orchestration' | 'research';
+export type ActiveLoop = 'execution' | 'planning' | 'learning';
 export type ResearchMode = 'goalspec' | 'incident' | 'audit' | null;
 
 export type CanonicalAgent =
-  | 'start'
-  | 'integrate'
-  | 'check'
-  | 'hotfix'
-  | 'doublecheck'
-  | 'consult'
-  | 'troubleshoot'
-  | 'update'
-  | 'goal_intake'
-  | 'spec_synthesis'
-  | 'spec_review'
-  | 'critic'
-  | 'designer'
-  | 'taskmaster'
-  | 'taskaudit'
-  | 'objective_profile_sync'
+  | 'builder'
+  | 'checker'
+  | 'fixer'
+  | 'doublechecker'
+  | 'updater'
+  | 'troubleshooter'
+  | 'consultant'
+  | 'planner'
+  | 'manager'
   | 'mechanic'
-  | 'incident_intake'
-  | 'incident_resolve'
-  | 'incident_archive'
-  | 'contractor'
-  | 'audit_intake'
-  | 'audit_validate'
-  | 'audit_gatekeeper';
+  | 'auditor'
+  | 'arbiter'
+  | 'analyst'
+  | 'professor'
+  | 'curator';
 
 export type PipelineStage =
-  | 'research'
-  | 'decompose'
   | 'builder'
-  | 'integrate'
-  | 'qa'
-  | 'hotfix'
-  | 'doublecheck'
-  | 'finalize';
+  | 'checker'
+  | 'fixer'
+  | 'doublechecker'
+  | 'updater'
+  | 'troubleshooter'
+  | 'consultant'
+  | 'planner'
+  | 'manager'
+  | 'mechanic'
+  | 'auditor'
+  | 'arbiter'
+  | 'analyst'
+  | 'professor'
+  | 'curator';
 
 export interface RawTask {
   id?: number | string;
@@ -80,6 +78,44 @@ export interface RawDashboardPayload {
     timestamp?: string | null;
   };
   log_lines?: string[];
+  runtime?: {
+    workspace?: string | null;
+    runtime_mode?: string | null;
+    process_running?: boolean;
+    paused?: boolean;
+    stop_requested?: boolean;
+    active_mode_id?: string | null;
+    compiled_plan_id?: string | null;
+    compiled_plan_currentness?: string | null;
+    active_plane?: string | null;
+    active_stage?: string | null;
+    active_run_id?: string | null;
+    active_work_item_kind?: string | null;
+    active_work_item_id?: string | null;
+    execution_status_marker?: string | null;
+    planning_status_marker?: string | null;
+    learning_status_marker?: string | null;
+    current_failure_class?: string | null;
+    watcher_mode?: string | null;
+    baseline_seed_package_version?: string | null;
+    closure?: {
+      open_count?: number;
+      root_spec_id?: string | null;
+      blocked_by_lineage_work?: boolean;
+      latest_verdict_path?: string | null;
+      latest_report_path?: string | null;
+    };
+  };
+  queues?: Partial<Record<ActiveLoop, RawQueueCounts>>;
+}
+
+export interface RawQueueCounts {
+  queue?: number;
+  active?: number;
+  done?: number;
+  blocked?: number;
+  incoming?: number;
+  resolved?: number;
 }
 
 export interface DashboardTask {
@@ -94,6 +130,40 @@ export interface DashboardTestSuite {
   failed: number;
   total: number;
   active: boolean;
+}
+
+export interface DashboardQueueCounts {
+  queue: number;
+  active: number;
+  done: number;
+  blocked: number;
+}
+
+export interface DashboardRuntime {
+  workspace: string | null;
+  runtimeMode: string | null;
+  processRunning: boolean;
+  paused: boolean;
+  stopRequested: boolean;
+  activeModeId: string | null;
+  compiledPlanId: string | null;
+  compiledPlanCurrentness: string | null;
+  activePlane: ActiveLoop;
+  activeStage: CanonicalAgent | null;
+  activeRunId: string | null;
+  activeWorkItemKind: string | null;
+  activeWorkItemId: string | null;
+  statusMarkers: Record<ActiveLoop, string | null>;
+  currentFailureClass: string | null;
+  watcherMode: string | null;
+  baselineSeedPackageVersion: string | null;
+  closure: {
+    openCount: number;
+    rootSpecId: string | null;
+    blockedByLineageWork: boolean;
+    latestVerdictPath: string | null;
+    latestReportPath: string | null;
+  };
 }
 
 export interface DashboardSnapshot {
@@ -120,6 +190,8 @@ export interface DashboardSnapshot {
     cycleNumber: number | null;
   };
   tests: Record<string, DashboardTestSuite>;
+  queues: Record<ActiveLoop, DashboardQueueCounts>;
+  runtime: DashboardRuntime;
   latestCommit: {
     hash: string;
     message: string;

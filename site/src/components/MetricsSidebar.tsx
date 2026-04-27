@@ -1,12 +1,11 @@
 import { React, useEffect, useRef, useState } from '../react-global.js';
-import { COLORS } from '../constants.js';
-import type { DashboardSnapshot } from '../types.js';
-import { interpolateHex } from '../utils/colors.js';
+import type { ActiveLoop, DashboardQueueCounts, DashboardSnapshot } from '../types.js';
 import {
   countProgress,
   formatElapsedTime,
   formatMillions,
   formatTimestampAge,
+  truncateMiddle,
 } from '../utils/format.js';
 import { getCompletedTaskCount, getProgressBreakdown } from '../utils/telemetry.js';
 import { getDisplayName } from '../workers.js';
@@ -17,6 +16,8 @@ interface MetricsSidebarProps {
   staleAgeSeconds: number | null;
 }
 
+const PLANES: ActiveLoop[] = ['execution', 'planning', 'learning'];
+
 function MetricGroup({ label, children }: { label: string; children: any }) {
   return (
     <section className="metric-group">
@@ -26,19 +27,47 @@ function MetricGroup({ label, children }: { label: string; children: any }) {
   );
 }
 
-function formatLoopLabel(snapshot: DashboardSnapshot): string {
-  if (snapshot.loop.activeLoop === 'research') {
-    return `Research / ${snapshot.loop.researchMode || 'goalspec'}`;
+function formatRuntimeState(snapshot: DashboardSnapshot): string {
+  if (snapshot.runtime.paused) {
+    return 'Paused';
   }
-  return 'Orchestration / Forge';
+  if (snapshot.runtime.stopRequested) {
+    return 'Stopping';
+  }
+  if (snapshot.runtime.processRunning) {
+    return 'Running';
+  }
+  return 'Standby';
+}
+
+function countQueue(counts: DashboardQueueCounts): number {
+  return counts.queue + counts.active + counts.blocked;
+}
+
+function formatQueueLine(snapshot: DashboardSnapshot): string {
+  return PLANES.map((plane) => `${plane} ${countQueue(snapshot.queues[plane])}`).join(' / ');
+}
+
+function MetricLine({ label, value }: { label: string; value: any }) {
+  return (
+    <div className="metric-line">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
 }
 
 export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }: MetricsSidebarProps) {
   const completedTasks = getCompletedTaskCount(snapshot);
-  const progressRatio = countProgress(completedTasks, snapshot.pipeline.totalTasks);
+  const progressRatio = countProgress(completedTasks, snapshot.pipeline.totalTasks || snapshot.tasks.length);
   const progressBreakdown = getProgressBreakdown(snapshot);
-  const activeAgentName = getDisplayName(snapshot.pipeline.currentAgent);
-  const costColor = interpolateHex(COLORS.muted, COLORS.heatHot, progressRatio);
+  const activeAgentName = getDisplayName(snapshot.runtime.activeStage ?? snapshot.pipeline.currentAgent);
+  const runtimeState = formatRuntimeState(snapshot);
+  const workItem = snapshot.runtime.activeWorkItemId || snapshot.runtime.activeRunId || 'work item pending';
+  const planId = snapshot.runtime.compiledPlanId ? truncateMiddle(snapshot.runtime.compiledPlanId, 32) : 'plan pending';
+  const planState = snapshot.runtime.compiledPlanCurrentness || '--';
+  const latestHash = snapshot.latestCommit.hash ? snapshot.latestCommit.hash.slice(0, 7) : '--';
+  const latestMessage = snapshot.latestCommit.message || '--';
 
   const [commitFlash, setCommitFlash] = useState(false);
   const previousCommitHashRef = useRef(snapshot.latestCommit.hash);
@@ -59,68 +88,70 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds }
 
   return (
     <aside className="metrics-sidebar" aria-label="Run metrics">
-      <MetricGroup label="Run">
-        <div className="metric-value">{formatLoopLabel(snapshot)}</div>
-        <div className="metric-subline">{snapshot.runId || 'run-id pending'}</div>
-      </MetricGroup>
-
-      <MetricGroup label="Cost">
-        <div className="metric-cost" style={{ color: costColor }}>
-          $200
+      <MetricGroup label="Runtime Identity">
+        <div className={`metric-value metric-value--${runtimeState.toLowerCase()}`}>{runtimeState}</div>
+        <div className="metric-subline">
+          {snapshot.runtime.baselineSeedPackageVersion
+            ? `Millrace ${snapshot.runtime.baselineSeedPackageVersion}`
+            : snapshot.runtime.runtimeMode || 'runtime pending'}
         </div>
+        <MetricLine label="run" value={snapshot.runId || 'run pending'} />
+        <MetricLine label="mode" value={snapshot.runtime.activeModeId || 'mode pending'} />
+        <MetricLine label="plan" value={`${planState} / ${planId}`} />
       </MetricGroup>
 
-      <MetricGroup label="Elapsed Time">
-        <div className={`metric-value ${snapshot.elapsedSeconds > 0 ? '' : 'metric-value--muted'}`}>
-          {formatElapsedTime(snapshot.elapsedSeconds)}
-        </div>
-      </MetricGroup>
-
-      <MetricGroup label="Active Agent">
-        <div className={`metric-active-agent ${snapshot.pipeline.currentAgent ? '' : 'metric-value--muted'}`}>
+      <MetricGroup label="Work State">
+        <div className={`metric-active-agent ${snapshot.runtime.activeStage || snapshot.pipeline.currentAgent ? '' : 'metric-value--muted'}`}>
           {activeAgentName}
         </div>
-      </MetricGroup>
-
-      <MetricGroup label="Progress">
+        <div className="metric-subline">{workItem}</div>
+        <MetricLine label="queue" value={formatQueueLine(snapshot)} />
+        <MetricLine
+          label="tasks"
+          value={`${progressBreakdown.done} done / ${progressBreakdown.active} active / ${progressBreakdown.pending} pending`}
+        />
         <div className="progress-bar" aria-hidden="true">
           <div className="progress-bar__fill" style={{ width: `${progressRatio * 100}%` }} />
         </div>
         <div className="metric-subline">
-          {progressBreakdown.done} done · {progressBreakdown.active} active · {progressBreakdown.pending} pending
+          {completedTasks} / {snapshot.pipeline.totalTasks || snapshot.tasks.length || 0} execution work items
         </div>
       </MetricGroup>
 
-      <MetricGroup label="Tokens">
-        <div className="metric-subline metric-subline--tokens">
-          IN {formatMillions(snapshot.metrics.tokensIn)}
+      <MetricGroup label="Usage">
+        <div className={`metric-value ${snapshot.elapsedSeconds > 0 ? '' : 'metric-value--muted'}`}>
+          {formatElapsedTime(snapshot.elapsedSeconds)}
         </div>
+        <div className="metric-subline">elapsed runtime</div>
+        <div className="metric-subline metric-subline--tokens">IN {formatMillions(snapshot.metrics.tokensIn)}</div>
         <div className="metric-subline metric-subline--tokens">
           CACHED {formatMillions(snapshot.metrics.cachedTokens)}&nbsp;&nbsp;OUT {formatMillions(snapshot.metrics.tokensOut)}
         </div>
+        <div className="metric-subline">{snapshot.metrics.currentModel || 'model pending'}</div>
       </MetricGroup>
 
-      <MetricGroup label="Latest Commit">
+      <MetricGroup label="Output">
+        <MetricLine label="open targets" value={snapshot.runtime.closure.openCount} />
+        <div className="metric-subline">
+          {snapshot.runtime.closure.rootSpecId || (snapshot.runtime.closure.blockedByLineageWork ? 'lineage blocked' : 'no open target')}
+        </div>
         <div className={`latest-commit ${commitFlash ? 'latest-commit--flash' : ''}`}>
-          <div className="latest-commit__hash">{snapshot.latestCommit.hash ? snapshot.latestCommit.hash.slice(0, 7) : '--'}</div>
-          <div className="latest-commit__message" title={snapshot.latestCommit.message}>
-            {snapshot.latestCommit.message || '--'}
+          <div className="latest-commit__hash">{latestHash}</div>
+          <div className="latest-commit__message" title={latestMessage}>
+            {latestMessage}
           </div>
         </div>
       </MetricGroup>
 
-      <MetricGroup label="Feed Health">
+      <MetricGroup label="Feed">
         <div className={`metric-value ${showStaleIndicator ? 'metric-value--warning' : 'metric-value--positive'}`}>
           {showStaleIndicator ? 'Tracker stale' : 'Polling live'}
         </div>
         <div className="metric-subline">
-          {showStaleIndicator ? `Last updated ${formatTimestampAge(staleAgeSeconds)}` : 'Auto-refresh enabled'}
+          {showStaleIndicator ? `Last updated ${formatTimestampAge(staleAgeSeconds)}` : 'state feed connected'}
         </div>
+        <div className="metric-subline">public state / live-state.json</div>
       </MetricGroup>
-
-      <div className="sidebar-footer">
-        Preliminary livestream surface
-      </div>
     </aside>
   );
 }

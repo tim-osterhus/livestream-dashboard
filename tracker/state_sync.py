@@ -44,7 +44,7 @@ except ImportError:  # pragma: no cover - Python 3.9+ should have zoneinfo
 SYNC_INTERVAL_DEFAULT = 60.0
 RETRY_DELAY_DEFAULT = 5.0
 HTTP_TIMEOUT_DEFAULT = 10.0
-DEFAULT_TEST_SUITES = ["gcc_torture", "sqlite", "redis", "lua"]
+DEFAULT_TEST_SUITES = ["runtime", "queue", "closure", "site"]
 DEFAULT_AGENT_VALUE_STYLE = "blob"
 DEFAULT_LOG_TAIL = 10
 EM_DASH = " — "
@@ -150,6 +150,7 @@ def handle_signal(_signum: int, _frame: object) -> None:
 class TrackerConfig:
     dashboard_log: Path
     repo_path: Optional[Path]
+    millrace_workspace: Optional[Path]
     r2_endpoint: Optional[str]
     output_json_path: Optional[Path]
     run_id: str
@@ -623,6 +624,307 @@ class StateSync:
         return datetime.now(self.tzinfo).date()
 
 
+class NativeMillraceStateSync(StateSync):
+    """Build the public dashboard blob from Millrace runtime artifacts."""
+
+    def process_cycle(self) -> None:
+        blob = self._build_native_state_blob()
+        uploaded = self._upload_or_emit(blob)
+        self._print_status(blob, uploaded=uploaded)
+
+    def _build_native_state_blob(self) -> Dict[str, object]:
+        now_utc = datetime.now(timezone.utc)
+        workspace = self.config.millrace_workspace
+        assert workspace is not None
+        root = workspace.expanduser().resolve()
+        agents = root / "millrace-agents"
+        state_dir = agents / "state"
+        snapshot = self._read_json(state_dir / "runtime_snapshot.json")
+        compiled_plan = self._read_json(state_dir / "compiled_plan.json")
+        baseline_manifest = self._read_json(state_dir / "baseline_manifest.json")
+        open_targets = self._read_closure_targets(agents / "arbiter" / "targets")
+        runs = self._read_runs(agents / "runs")
+        latest_run = runs[-1] if runs else {}
+        token_usage = self._aggregate_run_tokens(runs)
+        queue_counts = self._queue_counts(agents)
+        active_plane = self._string(snapshot.get("active_plane")) or self._infer_active_plane(snapshot) or "execution"
+        active_stage = self._string(snapshot.get("active_stage"))
+        active_work_item_id = self._string(snapshot.get("active_work_item_id"))
+        active_since = self._string(snapshot.get("active_since"))
+        started_at = self._string(snapshot.get("started_at"))
+        updated_at = self._string(snapshot.get("updated_at")) or now_utc.isoformat().replace("+00:00", "Z")
+        elapsed_seconds = self._elapsed_seconds(started_at, now_utc)
+        current_model = self._string(latest_run.get("model_name"))
+
+        tasks = self._work_items_for_dashboard(agents, active_stage=active_stage)
+        done_count = sum(1 for task in tasks if task.get("status") == "complete")
+        active_count = sum(1 for task in tasks if task.get("status") == "active")
+        total_count = len(tasks)
+        current_index = done_count + (1 if active_count else 0)
+
+        log_lines = self._native_log_lines(
+            snapshot=snapshot,
+            queue_counts=queue_counts,
+            runs=runs,
+            updated_at=updated_at,
+        )
+
+        active_mode = self._string(snapshot.get("active_mode_id")) or self._string(compiled_plan.get("mode_id"))
+        closure = {
+            "open_count": len(open_targets),
+            "root_spec_id": self._string(open_targets[0].get("root_spec_id")) if open_targets else None,
+            "blocked_by_lineage_work": bool(open_targets[0].get("closure_blocked_by_lineage_work")) if open_targets else False,
+            "latest_verdict_path": self._path_name(open_targets[0].get("latest_verdict_path")) if open_targets else None,
+            "latest_report_path": self._path_name(open_targets[0].get("latest_report_path")) if open_targets else None,
+        }
+
+        return {
+            "timestamp": updated_at,
+            "run_id": self.config.run_id,
+            "elapsed_seconds": elapsed_seconds,
+            "loop": {
+                "active_loop": active_plane,
+                "research_mode": None,
+            },
+            "pipeline": {
+                "current_agent": active_stage,
+                "current_task_index": current_index,
+                "total_tasks": total_count,
+                "agent_started_at": active_since,
+            },
+            "tasks": tasks,
+            "metrics": {
+                "tokens_in": token_usage["input_tokens"],
+                "tokens_out": token_usage["output_tokens"],
+                "cached_tokens": token_usage["cached_input_tokens"],
+                "current_model": current_model,
+                "cycle_number": len(runs),
+            },
+            "tests": self._default_tests(),
+            "latest_commit": self._read_latest_commit(),
+            "log_lines": log_lines[-self.config.log_tail_size :],
+            "runtime": {
+                "workspace": root.name,
+                "runtime_mode": self._string(snapshot.get("runtime_mode")),
+                "process_running": bool(snapshot.get("process_running")),
+                "paused": bool(snapshot.get("paused")),
+                "stop_requested": bool(snapshot.get("stop_requested")),
+                "active_mode_id": active_mode,
+                "compiled_plan_id": self._string(snapshot.get("compiled_plan_id"))
+                or self._string(compiled_plan.get("compiled_plan_id")),
+                "compiled_plan_currentness": self._string(snapshot.get("compiled_plan_currentness")),
+                "active_plane": active_plane,
+                "active_stage": active_stage,
+                "active_run_id": self._string(snapshot.get("active_run_id")),
+                "active_work_item_kind": self._string(snapshot.get("active_work_item_kind")),
+                "active_work_item_id": active_work_item_id,
+                "execution_status_marker": self._string(snapshot.get("execution_status_marker")),
+                "planning_status_marker": self._string(snapshot.get("planning_status_marker")),
+                "learning_status_marker": self._string(snapshot.get("learning_status_marker")),
+                "current_failure_class": self._string(snapshot.get("current_failure_class")),
+                "watcher_mode": self._string(snapshot.get("watcher_mode")),
+                "baseline_seed_package_version": self._string(baseline_manifest.get("seed_package_version")),
+                "closure": closure,
+            },
+            "queues": queue_counts,
+        }
+
+    def _queue_counts(self, agents: Path) -> Dict[str, Dict[str, int]]:
+        return {
+            "execution": self._lane_counts(agents / "tasks", ("queue", "active", "done", "blocked")),
+            "planning": self._combined_counts(
+                (
+                    (agents / "specs", ("queue", "active", "done", "blocked")),
+                    (agents / "incidents", ("incoming", "active", "resolved", "blocked")),
+                )
+            ),
+            "learning": self._lane_counts(
+                agents / "learning" / "requests",
+                ("queue", "active", "done", "blocked"),
+            ),
+        }
+
+    def _combined_counts(self, sources: Tuple[Tuple[Path, Tuple[str, ...]], ...]) -> Dict[str, int]:
+        combined: Dict[str, int] = {}
+        for root, lanes in sources:
+            for lane, count in self._lane_counts(root, lanes).items():
+                normalized = "queue" if lane == "incoming" else "done" if lane == "resolved" else lane
+                combined[normalized] = combined.get(normalized, 0) + count
+        return combined
+
+    @staticmethod
+    def _lane_counts(root: Path, lanes: Tuple[str, ...]) -> Dict[str, int]:
+        return {
+            lane: len(tuple((root / lane).glob("*.md"))) if (root / lane).exists() else 0
+            for lane in lanes
+        }
+
+    def _work_items_for_dashboard(self, agents: Path, *, active_stage: Optional[str]) -> List[Dict[str, object]]:
+        items: List[Dict[str, object]] = []
+        for lane, status in (("done", "complete"), ("active", "active"), ("queue", "pending"), ("blocked", "pending")):
+            for path in sorted((agents / "tasks" / lane).glob("*.md")):
+                parsed = self._parse_work_doc(path)
+                entry: Dict[str, object] = {
+                    "id": parsed.get("Task-ID") or path.stem,
+                    "name": parsed.get("Title") or path.stem,
+                    "status": status,
+                }
+                if status == "active" and active_stage:
+                    entry["active_agent"] = active_stage
+                items.append(entry)
+        return items[-80:]
+
+    def _native_log_lines(
+        self,
+        *,
+        snapshot: Dict[str, object],
+        queue_counts: Dict[str, Dict[str, int]],
+        runs: List[Dict[str, object]],
+        updated_at: str,
+    ) -> List[str]:
+        clock = self._clock(updated_at)
+        active_plane = self._string(snapshot.get("active_plane")) or self._infer_active_plane(snapshot) or "execution"
+        active_stage = self._string(snapshot.get("active_stage")) or "none"
+        execution = queue_counts.get("execution", {})
+        planning = queue_counts.get("planning", {})
+        learning = queue_counts.get("learning", {})
+        lines = [
+            f"[{clock}] Runtime snapshot refreshed",
+            f"[{clock}] Active plane: {active_plane}; stage: {active_stage}",
+            (
+                f"[{clock}] Queue depths: execution={self._count_total(execution)} "
+                f"planning={self._count_total(planning)} learning={self._count_total(learning)}"
+            ),
+        ]
+        if snapshot.get("current_failure_class"):
+            lines.append(f"[{clock}] Failure class: {snapshot.get('current_failure_class')}")
+        for run in runs[-4:]:
+            stage = run.get("stage") or "stage"
+            terminal = run.get("terminal_result") or run.get("status") or "result"
+            work_item_id = run.get("work_item_id") or "-"
+            lines.append(f"[{self._clock(self._string(run.get('completed_at')))}] {stage}: {terminal} ({work_item_id})")
+        return lines
+
+    def _read_runs(self, runs_dir: Path) -> List[Dict[str, object]]:
+        runs: List[Dict[str, object]] = []
+        if not runs_dir.exists():
+            return runs
+        for run_dir in sorted(path for path in runs_dir.iterdir() if path.is_dir()):
+            stage_results = sorted((run_dir / "stage_results").glob("*.json"))
+            if not stage_results:
+                runs.append({"run_id": run_dir.name, "status": "incomplete"})
+                continue
+            latest = self._read_json(stage_results[-1])
+            token_usage = latest.get("token_usage") if isinstance(latest.get("token_usage"), dict) else {}
+            runs.append(
+                {
+                    "run_id": run_dir.name,
+                    "stage": self._string(latest.get("stage")),
+                    "terminal_result": self._string(latest.get("terminal_result")),
+                    "result_class": self._string(latest.get("result_class")),
+                    "work_item_kind": self._string(latest.get("work_item_kind")),
+                    "work_item_id": self._string(latest.get("work_item_id")),
+                    "model_name": self._string(latest.get("model_name")),
+                    "started_at": self._string(latest.get("started_at")),
+                    "completed_at": self._string(latest.get("completed_at")),
+                    "token_usage": token_usage,
+                }
+            )
+        runs.sort(key=lambda item: str(item.get("completed_at") or item.get("run_id") or ""))
+        return runs
+
+    @staticmethod
+    def _aggregate_run_tokens(runs: List[Dict[str, object]]) -> Dict[str, int]:
+        totals = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
+        for run in runs:
+            usage = run.get("token_usage")
+            if not isinstance(usage, dict):
+                continue
+            for key in totals:
+                value = usage.get(key)
+                if isinstance(value, int):
+                    totals[key] += max(0, value)
+        return totals
+
+    def _read_closure_targets(self, targets_dir: Path) -> List[Dict[str, object]]:
+        targets: List[Dict[str, object]] = []
+        for path in sorted(targets_dir.glob("*.json")) if targets_dir.exists() else []:
+            payload = self._read_json(path)
+            if payload.get("closure_open"):
+                targets.append(payload)
+        return targets
+
+    def _default_tests(self) -> Dict[str, Dict[str, object]]:
+        return {
+            suite: {"passed": 0, "failed": 0, "total": 0, "active": False}
+            for suite in self.config.test_suites
+        }
+
+    @staticmethod
+    def _parse_work_doc(path: Path) -> Dict[str, str]:
+        fields: Dict[str, str] = {}
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return fields
+        for line in lines:
+            if line.startswith("# ") and "Title" not in fields:
+                fields["Title"] = line[2:].strip()
+                continue
+            match = re.match(r"^([A-Za-z][A-Za-z0-9-]*):\s*(.*?)\s*$", line)
+            if match:
+                fields[match.group(1)] = match.group(2)
+        return fields
+
+    @staticmethod
+    def _read_json(path: Path) -> Dict[str, object]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _infer_active_plane(snapshot: Dict[str, object]) -> Optional[str]:
+        for plane in ("execution", "planning", "learning"):
+            marker = snapshot.get(f"{plane}_status_marker")
+            if isinstance(marker, str) and marker != "### IDLE":
+                return plane
+        return None
+
+    @staticmethod
+    def _string(value: object) -> Optional[str]:
+        return value if isinstance(value, str) and value else None
+
+    @staticmethod
+    def _path_name(value: object) -> Optional[str]:
+        return Path(value).name if isinstance(value, str) and value else None
+
+    @staticmethod
+    def _count_total(counts: Dict[str, int]) -> int:
+        return sum(value for value in counts.values() if isinstance(value, int))
+
+    @staticmethod
+    def _elapsed_seconds(started_at: Optional[str], now_utc: datetime) -> int:
+        if not started_at:
+            return 0
+        try:
+            parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        except ValueError:
+            return 0
+        return max(0, int((now_utc - parsed.astimezone(timezone.utc)).total_seconds()))
+
+    @staticmethod
+    def _clock(timestamp: Optional[str]) -> str:
+        if not timestamp:
+            return "--:--:--"
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return "--:--:--"
+        return parsed.astimezone(timezone.utc).strftime("%H:%M:%S")
+
+
 def _parse_test_suites(raw: str) -> List[str]:
     suites = [re.sub(r"[^a-z0-9_]+", "_", item.strip().lower()).strip("_") for item in raw.split(",")]
     return [suite for suite in suites if suite] or DEFAULT_TEST_SUITES[:]
@@ -632,6 +934,14 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> TrackerConfig:
     parser = argparse.ArgumentParser(description="Parse dashboard.log into a state blob and sync it to R2")
     parser.add_argument("--dashboard-log", default=os.getenv("DASHBOARD_LOG", "./dashboard.log"))
     parser.add_argument("--repo-path", default=os.getenv("REPO_PATH", ""))
+    parser.add_argument(
+        "--millrace-workspace",
+        default=os.getenv("MILLRACE_WORKSPACE", ""),
+        help=(
+            "Optional Millrace workspace root. When set, state is built from "
+            "<workspace>/millrace-agents instead of dashboard.log."
+        ),
+    )
     parser.add_argument("--r2-endpoint", default=os.getenv("R2_ENDPOINT", ""))
     parser.add_argument(
         "--output-json",
@@ -662,11 +972,13 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> TrackerConfig:
     args = parser.parse_args(argv)
 
     repo_path = Path(args.repo_path) if args.repo_path else None
+    millrace_workspace = Path(args.millrace_workspace) if args.millrace_workspace else None
     endpoint = args.r2_endpoint or None
     output_json_path = Path(args.output_json) if args.output_json else None
     return TrackerConfig(
         dashboard_log=Path(args.dashboard_log),
         repo_path=repo_path,
+        millrace_workspace=millrace_workspace,
         r2_endpoint=endpoint,
         output_json_path=output_json_path,
         run_id=args.run_id,
@@ -688,7 +1000,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
     config = parse_args(argv)
-    syncer = StateSync(config)
+    syncer = NativeMillraceStateSync(config) if config.millrace_workspace else StateSync(config)
     syncer.run_forever()
     return 0
 

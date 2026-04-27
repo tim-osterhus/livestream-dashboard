@@ -1,65 +1,107 @@
 {
-  "timestamp": "2026-03-17T09:18:12Z",
-  "run_id": "git-clone-prelim-001",
-  "elapsed_seconds": 10440,
+  "timestamp": "2026-04-26T09:16:37.636823Z",
+  "run_id": "millrace-v015-standby",
+  "elapsed_seconds": 0,
   "loop": {
-    "active_loop": "orchestration",
+    "active_loop": "execution",
     "research_mode": null
   },
   "pipeline": {
-    "current_agent": "check",
-    "current_task_index": 21,
-    "total_tasks": 92,
-    "agent_started_at": "2026-03-17T09:12:40Z"
+    "current_agent": null,
+    "current_task_index": 0,
+    "total_tasks": 0,
+    "agent_started_at": null
   },
-  "tasks": [
-    {
-      "id": 19,
-      "name": "Implement branch listing and reference updates",
-      "status": "complete"
-    },
-    {
-      "id": 20,
-      "name": "Write checkout path for branch switch and file restore",
-      "status": "complete"
-    },
-    {
-      "id": 21,
-      "name": "Validate loose-object compatibility against real Git for add, commit, and log",
-      "status": "active",
-      "active_agent": "check"
-    },
-    {
-      "id": 22,
-      "name": "Implement three-way merge with basic conflict detection",
-      "status": "pending"
-    }
-  ],
+  "tasks": [],
   "metrics": {
-    "tokens_in": 3820000,
-    "tokens_out": 1090000,
-    "cached_tokens": 1410000,
-    "current_model": "gpt-5.2",
-    "cycle_number": 76
+    "tokens_in": 0,
+    "tokens_out": 0,
+    "cached_tokens": 0,
+    "current_model": null,
+    "cycle_number": 0
   },
   "tests": {
-    "git_compat": { "passed": 58, "failed": 4, "total": 70, "active": true },
-    "repo_parity": { "passed": 19, "failed": 2, "total": 24, "active": true },
-    "merge_cases": { "passed": 0, "failed": 0, "total": 0, "active": false }
+    "runtime": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    },
+    "queue": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    },
+    "closure": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    },
+    "site": {
+      "passed": 0,
+      "failed": 0,
+      "total": 0,
+      "active": false
+    }
   },
   "latest_commit": {
-    "hash": "4f7d9a1",
-    "message": "Implement checkout path for branch heads and working tree restoration",
-    "timestamp": "2026-03-17T09:11:02Z"
+    "hash": "71bc8e0d6915d6c5f27f4cd9c78ad95d4f874329",
+    "message": "Publish Corebound release metadata sync",
+    "timestamp": "2026-03-13T18:11:54-10:00"
   },
   "log_lines": [
-    "[08:57:03] Stage Builder: complete — task=\"Write checkout path for branch switch and file restore\"",
-    "[08:57:03] Stage QA: starting — model=gpt-5.2",
-    "[09:02:50] QA: result=QA_COMPLETE",
-    "[09:02:53] Progress: 20/92 tasks — elapsed 02h54m",
-    "[09:02:56] Stage QA: starting — task=\"Validate loose-object compatibility against real Git for add, commit, and log\"",
-    "[09:08:31] QA: running git compatibility harness against generated repo fixtures",
-    "[09:14:44] QA: 58 pass / 4 fail — remaining failures isolated to reflog edge cases",
-    "[09:18:12] QA: running (332s elapsed)"
-  ]
+    "[09:16:37] Runtime snapshot refreshed",
+    "[09:16:37] Active plane: execution; stage: none",
+    "[09:16:37] Queue depths: execution=0 planning=0 learning=0"
+  ],
+  "runtime": {
+    "workspace": "turnloop",
+    "runtime_mode": "daemon",
+    "process_running": false,
+    "paused": false,
+    "stop_requested": false,
+    "active_mode_id": "default_codex",
+    "compiled_plan_id": "bootstrap",
+    "compiled_plan_currentness": null,
+    "active_plane": "execution",
+    "active_stage": null,
+    "active_run_id": null,
+    "active_work_item_kind": null,
+    "active_work_item_id": null,
+    "execution_status_marker": "### IDLE",
+    "planning_status_marker": "### IDLE",
+    "learning_status_marker": "### IDLE",
+    "current_failure_class": null,
+    "watcher_mode": "off",
+    "baseline_seed_package_version": "0.15.3",
+    "closure": {
+      "open_count": 0,
+      "root_spec_id": null,
+      "blocked_by_lineage_work": false,
+      "latest_verdict_path": null,
+      "latest_report_path": null
+    }
+  },
+  "queues": {
+    "execution": {
+      "queue": 0,
+      "active": 0,
+      "done": 0,
+      "blocked": 0
+    },
+    "planning": {
+      "queue": 0,
+      "active": 0,
+      "done": 0,
+      "blocked": 0
+    },
+    "learning": {
+      "queue": 0,
+      "active": 0,
+      "done": 0,
+      "blocked": 0
+    }
+  }
 }

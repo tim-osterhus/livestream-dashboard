@@ -1,7 +1,7 @@
 import { React } from '../react-global.js';
-import { PIPELINE_STAGES } from '../constants.js';
 import type { DashboardSnapshot } from '../types.js';
 import { getActiveTask, getActiveStage } from '../utils/telemetry.js';
+import { getDisplayName, getStageSequence } from '../workers.js';
 
 interface TaskBarProps {
   snapshot: DashboardSnapshot;
@@ -10,8 +10,9 @@ interface TaskBarProps {
 export function TaskBar({ snapshot }: TaskBarProps) {
   const activeTask = getActiveTask(snapshot);
   const activeStage = getActiveStage(snapshot);
-  const activeStageIndex = activeStage ? PIPELINE_STAGES.indexOf(activeStage) : -1;
-  const stageLabel = activeStage === null ? 'Idle' : activeStage === 'qa' ? 'QA' : activeStage.replace(/_/g, ' ');
+  const stageSequence = getStageSequence(snapshot.loop.activeLoop);
+  const activeStageIndex = activeStage ? stageSequence.indexOf(activeStage) : -1;
+  const stageLabel = getDisplayName(activeStage, 'Idle');
   const isStandby = !snapshot.pipeline.currentAgent && snapshot.pipeline.totalTasks === 0;
   const taskLabel = isStandby ? 'Waiting for first loop signal' : (activeTask?.name || 'Waiting for first loop signal');
 
@@ -27,7 +28,7 @@ export function TaskBar({ snapshot }: TaskBarProps) {
         {stageLabel}
       </div>
       <div className="task-bar__pipeline" aria-hidden="true">
-        {PIPELINE_STAGES.map((stage, index) => {
+        {stageSequence.map((stage, index) => {
           const state =
             activeStageIndex === -1
               ? 'pending'

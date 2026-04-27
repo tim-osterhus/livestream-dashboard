@@ -1,72 +1,56 @@
-import { React, useEffect, useMemo, useRef, useState } from '../react-global.js';
-import { PIPELINE_STAGES } from '../constants.js';
+import { React, useMemo } from '../react-global.js';
 import type {
+  ActiveLoop,
+  DashboardQueueCounts,
   DashboardSnapshot,
   DashboardTask,
   PipelineStage,
 } from '../types.js';
 import { formatElapsedTime, truncateMiddle } from '../utils/format.js';
 import { getActiveStage, getActiveTask } from '../utils/telemetry.js';
+import { getDisplayName, getStageSequence } from '../workers.js';
 
 interface WorkshopSceneProps {
   snapshot: DashboardSnapshot;
 }
 
+const PLANES: ActiveLoop[] = ['execution', 'planning', 'learning'];
+
 function formatStageLabel(stage: PipelineStage | null): string {
   if (!stage) {
-    return 'Awaiting stage';
+    return 'Standby';
   }
+  return getDisplayName(stage, stage.replace(/_/g, ' '));
+}
 
-  switch (stage) {
-    case 'qa':
-      return 'QA';
-    default:
-      return stage.replace(/_/g, ' ');
-  }
+function formatPlaneLabel(plane: ActiveLoop): string {
+  return plane.charAt(0).toUpperCase() + plane.slice(1);
+}
+
+function countQueue(counts: DashboardQueueCounts): number {
+  return counts.queue + counts.active + counts.blocked;
 }
 
 function getFocusTitle(snapshot: DashboardSnapshot, activeTask: DashboardTask | null): string {
-  if (!snapshot.pipeline.currentAgent && snapshot.pipeline.totalTasks === 0) {
-    return 'Awaiting first loop event';
-  }
-  if (activeTask?.name) {
+  if (activeTask?.name && activeTask.name !== '—') {
     return activeTask.name;
   }
-  if (snapshot.loop.activeLoop === 'research') {
-    return 'Research loop is live';
+  if (snapshot.runtime.activeWorkItemId) {
+    return `${snapshot.runtime.activeWorkItemKind || 'work item'} ${snapshot.runtime.activeWorkItemId}`;
   }
-  return 'Awaiting next task card';
+  if (snapshot.runtime.processRunning) {
+    return 'Runtime active';
+  }
+  return 'Runtime standby';
 }
 
-function getFocusTagline(snapshot: DashboardSnapshot): string {
-  if (!snapshot.pipeline.currentAgent && snapshot.pipeline.totalTasks === 0) {
-    return 'Start either logged loop and this surface will switch from standby into live queue, commit, and transcript telemetry automatically.';
-  }
-  if (snapshot.loop.activeLoop === 'research') {
-    return 'Use this surface to make decomposition, audit posture, and incident handling legible at a glance.';
-  }
-  return 'Execution is live. Keep the operator focused on queue movement, commit activity, and the live transcript rather than decorative scaffolding.';
-}
-
-function BackdropLayer({
-  type,
-  visible,
-  pulsing,
-}: {
-  type: 'orchestration' | 'research';
-  visible: boolean;
-  pulsing: boolean;
-}) {
-  const isForge = type === 'orchestration';
-
-  return (
-    <div className={`scene-layer scene-layer--${type} ${visible ? 'scene-layer--visible' : ''} ${pulsing ? 'scene-layer--swap' : ''}`}>
-      <div className={`scene-backdrop ${isForge ? 'scene-backdrop--forge' : 'scene-backdrop--study'}`} />
-      <div className={`scene-atmosphere scene-atmosphere--${isForge ? 'forge' : 'study'}`} />
-      <div className="scene-gridlines" />
-      <div className="scene-wordmark">{isForge ? 'FORGE' : 'STUDY'}</div>
-    </div>
-  );
+function getRuntimeLine(snapshot: DashboardSnapshot): string {
+  const parts = [
+    snapshot.runtime.activeModeId || 'mode pending',
+    snapshot.runtime.compiledPlanCurrentness || snapshot.runtime.compiledPlanId || 'plan pending',
+    snapshot.runtime.activeRunId || snapshot.runtime.watcherMode || 'run pending',
+  ];
+  return parts.filter(Boolean).join(' / ');
 }
 
 function getStageRuntimeSeconds(snapshot: DashboardSnapshot): number {
@@ -83,82 +67,95 @@ function getStageRuntimeSeconds(snapshot: DashboardSnapshot): number {
   return Math.max(0, Math.floor((timestampMs - startedAtMs) / 1000));
 }
 
+function formatStatusMarker(marker: string | null | undefined): string {
+  if (!marker) {
+    return 'state idle';
+  }
+
+  const cleaned = marker.replace(/^#+\s*/, '').trim();
+  return cleaned ? `state ${cleaned.toLowerCase()}` : 'state idle';
+}
+
 export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
-  const [researchSwapPulse, setResearchSwapPulse] = useState(false);
-  const previousResearchModeRef = useRef(snapshot.loop.researchMode as DashboardSnapshot['loop']['researchMode']);
-
-  useEffect(() => {
-    const previousResearchMode = previousResearchModeRef.current;
-    previousResearchModeRef.current = snapshot.loop.researchMode;
-
-    if (previousResearchMode === snapshot.loop.researchMode) {
-      return undefined;
-    }
-
-    setResearchSwapPulse(true);
-    const timer = window.setTimeout(() => setResearchSwapPulse(false), 520);
-    return () => window.clearTimeout(timer);
-  }, [snapshot.loop.researchMode]);
-
   const activeTask = getActiveTask(snapshot);
   const activeStage = getActiveStage(snapshot);
+  const stageSequence = getStageSequence(snapshot.loop.activeLoop);
+  const activeIndex = activeStage ? stageSequence.indexOf(activeStage) : -1;
+  const stageRuntime = getStageRuntimeSeconds(snapshot);
+  const focusTitle = getFocusTitle(snapshot, activeTask);
+  const runtimeLine = getRuntimeLine(snapshot);
   const completedTasks = useMemo(
-    () => snapshot.tasks.filter((task) => task.status === 'complete').slice(-4).reverse(),
+    () => snapshot.tasks.filter((task) => task.status === 'complete').slice(-5).reverse(),
     [snapshot.tasks],
   );
   const upcomingTasks = useMemo(
-    () => snapshot.tasks.filter((task) => task.status === 'pending').slice(0, 5),
+    () => snapshot.tasks.filter((task) => task.status === 'pending').slice(0, 6),
     [snapshot.tasks],
   );
-  const stageRuntime = getStageRuntimeSeconds(snapshot);
-  const focusTitle = getFocusTitle(snapshot, activeTask);
-  const focusTagline = getFocusTagline(snapshot);
-  return (
-    <section className="workshop-shell" aria-label="Mission control command deck">
-      <BackdropLayer type="orchestration" visible={snapshot.loop.activeLoop === 'orchestration'} pulsing={false} />
-      <BackdropLayer type="research" visible={snapshot.loop.activeLoop === 'research'} pulsing={researchSwapPulse} />
+  const queuedTotal = PLANES.reduce((total, plane) => total + countQueue(snapshot.queues[plane]), 0);
+  const statusText = snapshot.runtime.paused
+    ? 'Paused'
+    : snapshot.runtime.stopRequested
+      ? 'Stopping'
+      : snapshot.runtime.processRunning
+        ? 'Running'
+        : 'Standby';
 
-      <div className={`command-deck ${researchSwapPulse ? 'command-deck--swap' : ''}`}>
+  return (
+    <section className="workshop-shell" aria-label="Millrace operations">
+      <div className="scene-gridlines" aria-hidden="true" />
+
+      <div className="command-deck">
         <header className="command-deck__header">
-          <div>
-            <div className="command-deck__title">Livestream dashboard</div>
+          <div className="command-deck__brand" aria-label="Millrace live runtime surface">
+            <img className="brand-mark" src="./MillraceIconSignalNav.png" alt="" aria-hidden="true" />
+            <span className="brand-name">Millrace</span>
+            <span className="brand-tag">Live Surface</span>
+          </div>
+          <div className={`runtime-pill runtime-pill--${statusText.toLowerCase()}`}>
+            <span className="runtime-pill__dot" />
+            {statusText}
           </div>
         </header>
+
+        <div className="command-deck__meta-strip" aria-label="Dashboard surface metadata">
+          <span>surface <strong>runtime state</strong></span>
+          <span>source <strong>live-state.json</strong></span>
+          <span>loop <strong>{snapshot.loop.activeLoop}</strong></span>
+          <span>control <strong>{snapshot.runtime.activeModeId || 'mode pending'}</strong></span>
+        </div>
 
         <div className="command-deck__body">
           <section className="deck-panel deck-panel--focus">
             <div className="focus-summary">
               <div className="focus-hero">
-                <div className="focus-hero__eyebrow">Millrace Mission Control</div>
+                <div className="focus-hero__eyebrow">
+                  Runtime surface / {formatPlaneLabel(snapshot.loop.activeLoop)} / {formatStageLabel(activeStage)}
+                </div>
                 <h2 className="focus-hero__task" title={focusTitle}>
-                  {focusTitle}
+                  {truncateMiddle(focusTitle, 120)}
                 </h2>
-                <div className="focus-hero__subline">{focusTagline}</div>
+                <div className="focus-hero__subline">{runtimeLine}</div>
               </div>
             </div>
 
             <div className="focus-stats">
               <div className="focus-stat">
-                <span className="focus-stat__label">Current task</span>
-                <strong className="focus-stat__value">
-                  {snapshot.pipeline.currentTaskIndex} / {snapshot.pipeline.totalTasks}
-                </strong>
+                <span className="focus-stat__label">Backlog</span>
+                <strong className="focus-stat__value">{queuedTotal}</strong>
               </div>
               <div className="focus-stat">
-                <span className="focus-stat__label">Stage runtime</span>
+                <span className="focus-stat__label">Stage Runtime</span>
                 <strong className="focus-stat__value">{formatElapsedTime(stageRuntime)}</strong>
               </div>
               <div className="focus-stat">
-                <span className="focus-stat__label">Model / cycle</span>
-                <strong className="focus-stat__value">
-                  {snapshot.metrics.currentModel || '--'} · {snapshot.metrics.cycleNumber ?? '--'}
-                </strong>
+                <span className="focus-stat__label">Cycle</span>
+                <strong className="focus-stat__value">{snapshot.metrics.cycleNumber ?? '--'}</strong>
               </div>
             </div>
 
             <div className="focus-stagebar" aria-hidden="true">
-              {PIPELINE_STAGES.map((stage, index) => {
-                const activeIndex = activeStage ? PIPELINE_STAGES.indexOf(activeStage) : -1;
+              {stageSequence.map((stage, index) => {
                 const state =
                   activeIndex === -1
                     ? 'pending'
@@ -177,9 +174,33 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
               })}
             </div>
 
+            <div className="plane-grid">
+              {PLANES.map((plane) => {
+                const counts = snapshot.queues[plane];
+                const isActive = snapshot.loop.activeLoop === plane;
+                return (
+                  <article key={plane} className={`plane-panel ${isActive ? 'plane-panel--active' : ''}`}>
+                    <div className="plane-panel__header">
+                      <span>{formatPlaneLabel(plane)}</span>
+                      <strong>{countQueue(counts)}</strong>
+                    </div>
+                    <div className="plane-panel__lanes">
+                      <span>queue {counts.queue}</span>
+                      <span>active {counts.active}</span>
+                      <span>blocked {counts.blocked}</span>
+                      <span>done {counts.done}</span>
+                    </div>
+                    <div className="plane-panel__marker">
+                      {formatStatusMarker(snapshot.runtime.statusMarkers[plane])}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
             <div className="ops-grid">
               <article className="info-panel info-panel--queue">
-                <div className="info-panel__heading">Queue horizon</div>
+                <div className="info-panel__heading">Queued Work</div>
                 <div className="queue-list">
                   {upcomingTasks.length ? (
                     upcomingTasks.map((task: DashboardTask) => (
@@ -189,13 +210,13 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
                       </div>
                     ))
                   ) : (
-                    <div className="info-panel__empty">No queued tasks visible yet.</div>
+                    <div className="info-panel__empty">No queued execution work.</div>
                   )}
                 </div>
               </article>
 
               <article className="info-panel">
-                <div className="info-panel__heading">Recent completions</div>
+                <div className="info-panel__heading">Completed Work</div>
                 <div className="queue-list">
                   {completedTasks.length ? (
                     completedTasks.map((task: DashboardTask) => (
@@ -205,7 +226,7 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
                       </div>
                     ))
                   ) : (
-                    <div className="info-panel__empty">Completion history will appear here.</div>
+                    <div className="info-panel__empty">No completed execution work.</div>
                   )}
                 </div>
               </article>

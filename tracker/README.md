@@ -1,6 +1,6 @@
 # Livestream tracker: log aggregator + state sync
 
-This folder contains a concrete implementation of the two-script tracker from `track3-state-sync-spec-v2.md`:
+This folder contains a concrete implementation of the two-script tracker from `track3-state-sync-spec-v2.md`, plus a native Millrace v0.15 tracker path:
 
 - `log_aggregator.py`
 - `state_sync.py`
@@ -56,7 +56,8 @@ Responsibilities:
 
 Reads:
 
-- `dashboard.log`
+- `dashboard.log`, or
+- `<workspace>/millrace-agents` when `--millrace-workspace` is set
 
 Produces:
 
@@ -66,7 +67,8 @@ Produces:
 
 Responsibilities:
 
-- parse state incrementally,
+- parse legacy dashboard state incrementally,
+- read native Millrace runtime snapshots, queue depths, run artifacts, and arbiter targets,
 - remain idempotent on replayed/duplicated dashboard lines,
 - infer current task/task list/model/tokens/research mode,
 - attach latest git commit metadata,
@@ -91,6 +93,21 @@ python3 state_sync.py \
   --run-id compiler-run-001 \
   --r2-endpoint 'https://your-endpoint.example/state.json'
 ```
+
+### Native Millrace v0.15 example
+
+Use this mode for the current `live.millrace.ai` dashboard. It skips raw log aggregation and builds the public blob directly from Millrace runtime-owned state files.
+
+```bash
+python3 state_sync.py \
+  --millrace-workspace /path/to/workspace \
+  --repo-path /path/to/product/repo \
+  --run-id millrace-live \
+  --output-json ../site/dist/state/live-state.json \
+  --r2-endpoint 'https://your-presigned-put-url.example/state/live-state.json'
+```
+
+For browser polling from `live.millrace.ai`, the public state host must send CORS headers for the dashboard origin. At minimum, configure the bucket/custom domain serving `https://data.millrace.ai/state/live-state.json` to allow `https://live.millrace.ai`; adding `http://127.0.0.1:4173` is useful for local verification.
 
 ### Git clone prelim example
 
@@ -134,6 +151,16 @@ One-pass state build with no upload:
 python3 state_sync.py \
   --dashboard-log ./dashboard.log \
   --repo-path /path/to/repo \
+  --run-id test-run \
+  --once --dry-run --stdout-json
+```
+
+One-pass native state build with no upload:
+
+```bash
+python3 state_sync.py \
+  --millrace-workspace /path/to/workspace \
+  --repo-path /path/to/product/repo \
   --run-id test-run \
   --once --dry-run --stdout-json
 ```

@@ -2,10 +2,13 @@ import { IDLE_SNAPSHOT, KNOWN_SUITE_ORDER } from '../constants.js';
 import type {
   ActiveLoop,
   CanonicalAgent,
+  DashboardQueueCounts,
+  DashboardRuntime,
   DashboardSnapshot,
   DashboardTask,
   DashboardTestSuite,
   RawDashboardPayload,
+  RawQueueCounts,
   RawTask,
 } from '../types.js';
 import {
@@ -22,8 +25,15 @@ function toPositiveNumber(value: number | string | null | undefined): number {
   return Number(numeric);
 }
 
-function normalizeActiveLoop(value: string | undefined): ActiveLoop {
-  return value === 'research' ? 'research' : 'orchestration';
+function normalizeActiveLoop(value: string | null | undefined): ActiveLoop {
+  const normalized = value?.toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'planning' || normalized === 'research') {
+    return 'planning';
+  }
+  if (normalized === 'learning') {
+    return 'learning';
+  }
+  return 'execution';
 }
 
 function normalizeTaskStatus(value: string | undefined): DashboardTask['status'] {
@@ -69,11 +79,68 @@ function normalizeTestSuites(
   }, {});
 }
 
+function normalizeQueueCounts(rawCounts: RawQueueCounts | undefined): DashboardQueueCounts {
+  return {
+    queue: toPositiveNumber(rawCounts?.queue ?? rawCounts?.incoming),
+    active: toPositiveNumber(rawCounts?.active),
+    done: toPositiveNumber(rawCounts?.done ?? rawCounts?.resolved),
+    blocked: toPositiveNumber(rawCounts?.blocked),
+  };
+}
+
+function normalizeQueues(rawQueues: RawDashboardPayload['queues']): DashboardSnapshot['queues'] {
+  return {
+    execution: normalizeQueueCounts(rawQueues?.execution),
+    planning: normalizeQueueCounts(rawQueues?.planning),
+    learning: normalizeQueueCounts(rawQueues?.learning),
+  };
+}
+
+function normalizeRuntime(
+  raw: RawDashboardPayload,
+  activeLoop: ActiveLoop,
+  researchMode: DashboardSnapshot['loop']['researchMode'],
+): DashboardRuntime {
+  const runtime = raw.runtime;
+  const runtimePlane = normalizeActiveLoop(runtime?.active_plane ?? raw.loop?.active_loop);
+  return {
+    workspace: runtime?.workspace ?? null,
+    runtimeMode: runtime?.runtime_mode ?? null,
+    processRunning: Boolean(runtime?.process_running),
+    paused: Boolean(runtime?.paused),
+    stopRequested: Boolean(runtime?.stop_requested),
+    activeModeId: runtime?.active_mode_id ?? null,
+    compiledPlanId: runtime?.compiled_plan_id ?? null,
+    compiledPlanCurrentness: runtime?.compiled_plan_currentness ?? null,
+    activePlane: runtimePlane || activeLoop,
+    activeStage: normalizeAgent(runtime?.active_stage ?? raw.pipeline?.current_agent, activeLoop, researchMode),
+    activeRunId: runtime?.active_run_id ?? null,
+    activeWorkItemKind: runtime?.active_work_item_kind ?? null,
+    activeWorkItemId: runtime?.active_work_item_id ?? null,
+    statusMarkers: {
+      execution: runtime?.execution_status_marker ?? null,
+      planning: runtime?.planning_status_marker ?? null,
+      learning: runtime?.learning_status_marker ?? null,
+    },
+    currentFailureClass: runtime?.current_failure_class ?? null,
+    watcherMode: runtime?.watcher_mode ?? null,
+    baselineSeedPackageVersion: runtime?.baseline_seed_package_version ?? null,
+    closure: {
+      openCount: toPositiveNumber(runtime?.closure?.open_count),
+      rootSpecId: runtime?.closure?.root_spec_id ?? null,
+      blockedByLineageWork: Boolean(runtime?.closure?.blocked_by_lineage_work),
+      latestVerdictPath: runtime?.closure?.latest_verdict_path ?? null,
+      latestReportPath: runtime?.closure?.latest_report_path ?? null,
+    },
+  };
+}
+
 export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
-  const activeLoop = normalizeActiveLoop(raw.loop?.active_loop);
+  const activeLoop = normalizeActiveLoop(raw.runtime?.active_plane ?? raw.loop?.active_loop);
   const researchMode = normalizeResearchMode(raw.loop?.research_mode ?? null);
   const currentAgent = normalizeAgent(raw.pipeline?.current_agent, activeLoop, researchMode);
   const tasks = (raw.tasks ?? []).map((task) => normalizeTask(task, activeLoop, researchMode));
+  const runtime = normalizeRuntime(raw, activeLoop, researchMode);
 
   return {
     timestamp: raw.timestamp ?? null,
@@ -99,6 +166,8 @@ export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
       cycleNumber: raw.metrics?.cycle_number == null ? null : toPositiveNumber(raw.metrics.cycle_number),
     },
     tests: normalizeTestSuites(raw.tests),
+    queues: normalizeQueues(raw.queues),
+    runtime,
     latestCommit: {
       hash: raw.latest_commit?.hash?.trim() ?? '',
       message: raw.latest_commit?.message?.trim() ?? '',
@@ -118,12 +187,23 @@ export function getActiveTask(snapshot: DashboardSnapshot): DashboardTask | null
 
 export function getCompletedTaskCount(snapshot: DashboardSnapshot): number {
   const completedFromTasks = snapshot.tasks.filter((task) => task.status === 'complete').length;
+  if (snapshot.tasks.length) {
+    return completedFromTasks;
+  }
   const completedFromCounter = snapshot.pipeline.currentTaskIndex > 0 ? snapshot.pipeline.currentTaskIndex - 1 : 0;
   const totalTasks = snapshot.pipeline.totalTasks;
   return Math.min(totalTasks || Number.MAX_SAFE_INTEGER, Math.max(completedFromTasks, completedFromCounter));
 }
 
 export function getProgressBreakdown(snapshot: DashboardSnapshot): { done: number; active: number; pending: number } {
+  if (snapshot.tasks.length) {
+    return {
+      done: snapshot.tasks.filter((task) => task.status === 'complete').length,
+      active: snapshot.tasks.filter((task) => task.status === 'active').length,
+      pending: snapshot.tasks.filter((task) => task.status === 'pending').length,
+    };
+  }
+
   const totalTasks = snapshot.pipeline.totalTasks;
   const done = getCompletedTaskCount(snapshot);
   const active = totalTasks > 0 && snapshot.pipeline.currentTaskIndex > 0 ? 1 : 0;
@@ -160,5 +240,5 @@ export function createIdleSnapshot(): DashboardSnapshot {
 }
 
 export function getActiveStage(snapshot: DashboardSnapshot): ReturnType<typeof getPipelineStageForAgent> {
-  return getPipelineStageForAgent(snapshot.pipeline.currentAgent as CanonicalAgent | null);
+  return getPipelineStageForAgent((snapshot.runtime.activeStage ?? snapshot.pipeline.currentAgent) as CanonicalAgent | null);
 }
