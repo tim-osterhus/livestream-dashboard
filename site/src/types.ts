@@ -56,6 +56,7 @@ export interface RawDashboardPayload {
   tracker?: {
     sync_mode?: string | null;
     heartbeat_seconds?: number | string | null;
+    check_seconds?: number | string | null;
     debounce_seconds?: number | string | null;
   };
   loop?: {
@@ -174,6 +175,7 @@ export interface DashboardRuntime {
 export interface DashboardTracker {
   syncMode: 'event_driven' | 'interval' | 'unknown';
   heartbeatSeconds: number | null;
+  checkSeconds: number | null;
   debounceSeconds: number | null;
 }
 

@@ -21,6 +21,7 @@ Important ambiguities handled here:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -54,6 +55,7 @@ RETRY_DELAY_DEFAULT = 5.0
 HTTP_TIMEOUT_DEFAULT = 10.0
 EVENT_DEBOUNCE_DEFAULT = 1.0
 EVENT_HEARTBEAT_DEFAULT = 600.0
+EVENT_CHECK_DEFAULT = 5.0
 DEFAULT_TEST_SUITES = ["runtime", "queue", "closure", "site"]
 DEFAULT_AGENT_VALUE_STYLE = "blob"
 DEFAULT_LOG_TAIL = 10
@@ -175,6 +177,7 @@ class TrackerConfig:
     event_driven: bool = False
     event_debounce_seconds: float = EVENT_DEBOUNCE_DEFAULT
     event_heartbeat_seconds: float = EVENT_HEARTBEAT_DEFAULT
+    event_check_seconds: float = EVENT_CHECK_DEFAULT
     once: bool = False
     dry_run: bool = False
     stdout_json: bool = False
@@ -266,10 +269,13 @@ class StateSync:
             return
 
         self.process_cycle()
+        last_fingerprint = self._event_fingerprint()
+        last_heartbeat_at = time.time()
         print(
             (
                 f"[state_sync] event-driven sync active; watching {len(scheduled)} roots; "
-                f"heartbeat={self._format_duration(int(self.config.event_heartbeat_seconds))}"
+                f"heartbeat={self._format_duration(int(self.config.event_heartbeat_seconds))}; "
+                f"check={self._format_duration(int(self.config.event_check_seconds))}"
             ),
             file=sys.stderr,
         )
@@ -278,15 +284,31 @@ class StateSync:
         try:
             while not STOP_REQUESTED:
                 heartbeat = max(0.0, self.config.event_heartbeat_seconds)
-                timeout = heartbeat if heartbeat > 0 else 1.0
+                check_interval = max(0.1, self.config.event_check_seconds)
+                if heartbeat > 0:
+                    heartbeat_remaining = max(0.0, heartbeat - (time.time() - last_heartbeat_at))
+                    timeout = min(check_interval, heartbeat_remaining or check_interval)
+                else:
+                    timeout = check_interval
                 triggered = pending.wait(timeout)
                 if STOP_REQUESTED:
                     break
                 if triggered:
                     pending.clear()
                     self._wait_for_event_quiet(pending)
+                    last_fingerprint = self._event_fingerprint()
                     self.process_cycle()
-                elif heartbeat > 0:
+                    continue
+
+                next_fingerprint = self._event_fingerprint()
+                if next_fingerprint != last_fingerprint:
+                    last_fingerprint = next_fingerprint
+                    self.process_cycle()
+                    continue
+
+                heartbeat_due = heartbeat > 0 and (time.time() - last_heartbeat_at) >= heartbeat
+                if heartbeat_due:
+                    last_heartbeat_at = time.time()
                     self.process_cycle()
         finally:
             observer.stop()
@@ -516,6 +538,7 @@ class StateSync:
         return {
             "sync_mode": "event_driven" if self.config.event_driven else "interval",
             "heartbeat_seconds": int(self.config.event_heartbeat_seconds) if self.config.event_driven else None,
+            "check_seconds": self.config.event_check_seconds if self.config.event_driven else None,
             "debounce_seconds": self.config.event_debounce_seconds if self.config.event_driven else None,
         }
 
@@ -736,6 +759,24 @@ class StateSync:
             return path.resolve() == self.config.dashboard_log.resolve()
         except OSError:
             return path.absolute() == self.config.dashboard_log.absolute()
+
+    def _event_fingerprint(self) -> str:
+        return self._fingerprint_paths((self.config.dashboard_log,))
+
+    @staticmethod
+    def _fingerprint_paths(paths: Iterable[Path]) -> str:
+        digest = hashlib.blake2s(digest_size=16)
+        for path in sorted({str(candidate) for candidate in paths}):
+            candidate = Path(path)
+            try:
+                stat = candidate.stat()
+            except OSError:
+                digest.update(f"{path}|missing\n".encode("utf-8"))
+                continue
+            digest.update(
+                f"{path}|{stat.st_mtime_ns}|{stat.st_size}|{stat.st_ino}\n".encode("utf-8", errors="replace")
+            )
+        return digest.hexdigest()
 
 
 class NativeMillraceStateSync(StateSync):
@@ -1027,6 +1068,46 @@ class NativeMillraceStateSync(StateSync):
 
         return False
 
+    def _event_fingerprint(self) -> str:
+        workspace = self.config.millrace_workspace
+        assert workspace is not None
+        agents = workspace.expanduser().resolve() / "millrace-agents"
+        paths: List[Path] = [
+            agents / "state" / "runtime_snapshot.json",
+            agents / "state" / "compiled_plan.json",
+            agents / "state" / "baseline_manifest.json",
+            agents / "state" / "compile_diagnostics.json",
+        ]
+
+        paths.extend(self._glob_files(agents / "tasks", ("*.md", "*.json")))
+        paths.extend(self._glob_files(agents / "specs", ("*.md", "*.json")))
+        paths.extend(self._glob_files(agents / "incidents", ("*.md", "*.json")))
+        paths.extend(self._glob_files(agents / "learning", ("*.md", "*.json")))
+        paths.extend(self._glob_files(agents / "arbiter" / "targets", ("*.json",)))
+        paths.extend(self._glob_files(agents / "state" / "mailbox", ("*.json",)))
+
+        runs_dir = agents / "runs"
+        paths.extend(self._glob_files(runs_dir, ("stage_results/*.json",)))
+        paths.extend(self._glob_files(runs_dir, ("runner_completion.*.json",)))
+        paths.extend(self._glob_files(runs_dir, ("runner_invocation.*.json",)))
+        paths.extend(self._glob_files(runs_dir, ("runner_events.*.jsonl",)))
+
+        if self.config.repo_path:
+            git_dir = self.config.repo_path / ".git"
+            paths.extend((git_dir / name for name in ("HEAD", "index", "packed-refs")))
+            paths.extend(self._glob_files(git_dir / "refs", ("*",)))
+
+        return self._fingerprint_paths(paths)
+
+    @staticmethod
+    def _glob_files(root: Path, patterns: Tuple[str, ...]) -> List[Path]:
+        if not root.exists():
+            return []
+        files: List[Path] = []
+        for pattern in patterns:
+            files.extend(path for path in root.rglob(pattern) if path.is_file())
+        return files
+
     def _run_dir_token_usage(self, run_dir: Path, stage_results: List[Path]) -> Dict[str, int]:
         stage_usage = self._sum_usage_dicts(
             self._read_json(path).get("token_usage")
@@ -1272,6 +1353,12 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> TrackerConfig:
         type=float,
         default=float(os.getenv("EVENT_HEARTBEAT_SECONDS", EVENT_HEARTBEAT_DEFAULT)),
     )
+    parser.add_argument(
+        "--event-check-seconds",
+        type=float,
+        default=float(os.getenv("EVENT_CHECK_SECONDS", EVENT_CHECK_DEFAULT)),
+        help="Cheap local mtime fingerprint check interval used as a fallback when filesystem events are missed.",
+    )
     parser.add_argument("--once", action="store_true", help="Run one ingest/sync cycle and exit.")
     parser.add_argument("--dry-run", action="store_true", help="Build state but skip network upload.")
     parser.add_argument("--stdout-json", action="store_true", help="Print the JSON blob to stdout each cycle.")
@@ -1299,6 +1386,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> TrackerConfig:
         event_driven=bool(args.event_driven),
         event_debounce_seconds=max(0.0, args.event_debounce_seconds),
         event_heartbeat_seconds=max(0.0, args.event_heartbeat_seconds),
+        event_check_seconds=max(0.1, args.event_check_seconds),
         once=args.once,
         dry_run=args.dry_run,
         stdout_json=args.stdout_json,

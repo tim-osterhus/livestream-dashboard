@@ -84,15 +84,18 @@ python3 state_sync.py \
   --run-id millrace-live \
   --event-driven \
   --event-heartbeat-seconds 600 \
+  --event-check-seconds 5 \
   --r2-endpoint 'https://your-presigned-put-url.example/state/live-state.json'
 ```
 
 Event mode watches Millrace runtime artifacts such as `runtime_snapshot.json`,
 stage result files, task/spec queue documents, closure targets, and git commit
 metadata. It uploads when those artifacts change, with a debounce window for
-bursty stage transitions, plus a low-frequency heartbeat as a recovery guard.
-The dashboard advances runtime and stage timers locally between uploaded
-snapshots, so the UI stays live without requiring constant tracker uploads.
+bursty stage transitions. It also performs a cheap local mtime fingerprint check
+so mounted filesystems that miss watchdog events still publish stage changes
+promptly. The low-frequency heartbeat is only a recovery guard. The dashboard
+advances runtime and stage timers locally between uploaded snapshots, so the UI
+stays live without requiring constant tracker uploads.
 
 ## Quick start
 

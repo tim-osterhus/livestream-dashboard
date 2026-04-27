@@ -165,6 +165,7 @@ export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
     tracker: {
       syncMode: normalizeSyncMode(raw.tracker?.sync_mode ?? null),
       heartbeatSeconds: toPositiveNumberOrNull(raw.tracker?.heartbeat_seconds),
+      checkSeconds: toPositiveNumberOrNull(raw.tracker?.check_seconds),
       debounceSeconds: toPositiveNumberOrNull(raw.tracker?.debounce_seconds),
     },
     loop: {
