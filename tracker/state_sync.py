@@ -1050,6 +1050,8 @@ class NativeMillraceStateSync(StateSync):
             return True
         if absolute.name.startswith("runner_completion.") and absolute.suffix == ".json":
             return True
+        if absolute.name.startswith("runner_invocation.") and absolute.suffix == ".json":
+            return True
 
         for root_name in ("tasks", "specs", "incidents", "learning"):
             root = agents / root_name
@@ -1072,13 +1074,51 @@ class NativeMillraceStateSync(StateSync):
         workspace = self.config.millrace_workspace
         assert workspace is not None
         agents = workspace.expanduser().resolve() / "millrace-agents"
-        paths: List[Path] = [
+        digest = hashlib.blake2s(digest_size=16)
+        self._fingerprint_json_subset(
+            digest,
             agents / "state" / "runtime_snapshot.json",
+            (
+                "runtime_mode",
+                "process_running",
+                "paused",
+                "stop_requested",
+                "active_mode_id",
+                "compiled_plan_id",
+                "active_plane",
+                "active_stage",
+                "active_run_id",
+                "active_work_item_kind",
+                "active_work_item_id",
+                "execution_status_marker",
+                "planning_status_marker",
+                "learning_status_marker",
+                "queue_depth_execution",
+                "queue_depth_planning",
+                "queue_depth_learning",
+                "last_terminal_result",
+                "last_stage_result_path",
+                "current_failure_class",
+                "watcher_mode",
+            ),
+        )
+        self._fingerprint_json_subset(
+            digest,
             agents / "state" / "compiled_plan.json",
+            ("compiled_plan_id", "mode_id", "compile_input_fingerprint"),
+        )
+        self._fingerprint_json_subset(
+            digest,
             agents / "state" / "baseline_manifest.json",
+            ("manifest_id", "seed_package_version"),
+        )
+        self._fingerprint_json_subset(
+            digest,
             agents / "state" / "compile_diagnostics.json",
-        ]
+            ("ok", "mode_id", "errors", "warnings"),
+        )
 
+        paths: List[Path] = []
         paths.extend(self._glob_files(agents / "tasks", ("*.md", "*.json")))
         paths.extend(self._glob_files(agents / "specs", ("*.md", "*.json")))
         paths.extend(self._glob_files(agents / "incidents", ("*.md", "*.json")))
@@ -1090,14 +1130,20 @@ class NativeMillraceStateSync(StateSync):
         paths.extend(self._glob_files(runs_dir, ("stage_results/*.json",)))
         paths.extend(self._glob_files(runs_dir, ("runner_completion.*.json",)))
         paths.extend(self._glob_files(runs_dir, ("runner_invocation.*.json",)))
-        paths.extend(self._glob_files(runs_dir, ("runner_events.*.jsonl",)))
 
         if self.config.repo_path:
             git_dir = self.config.repo_path / ".git"
             paths.extend((git_dir / name for name in ("HEAD", "index", "packed-refs")))
             paths.extend(self._glob_files(git_dir / "refs", ("*",)))
 
-        return self._fingerprint_paths(paths)
+        digest.update(self._fingerprint_paths(paths).encode("ascii"))
+        return digest.hexdigest()
+
+    def _fingerprint_json_subset(self, digest: "hashlib._Hash", path: Path, keys: Tuple[str, ...]) -> None:
+        payload = self._read_json(path)
+        subset = {key: payload.get(key) for key in keys if key in payload}
+        digest.update(str(path).encode("utf-8", errors="replace"))
+        digest.update(json.dumps(subset, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8"))
 
     @staticmethod
     def _glob_files(root: Path, patterns: Tuple[str, ...]) -> List[Path]:
