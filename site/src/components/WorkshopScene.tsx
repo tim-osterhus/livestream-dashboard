@@ -31,12 +31,20 @@ function countQueue(counts: DashboardQueueCounts): number {
   return counts.queue + counts.active + counts.blocked;
 }
 
+function titleizeWorkItemId(value: string): string {
+  return value
+    .split(/[-_]+/g)
+    .filter(Boolean)
+    .map((part) => (part.length <= 3 && /\d/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(' ');
+}
+
 function getFocusTitle(snapshot: DashboardSnapshot, activeTask: DashboardTask | null): string {
   if (activeTask?.name && activeTask.name !== '—') {
     return activeTask.name;
   }
   if (snapshot.runtime.activeWorkItemId) {
-    return `${snapshot.runtime.activeWorkItemKind || 'work item'} ${snapshot.runtime.activeWorkItemId}`;
+    return titleizeWorkItemId(snapshot.runtime.activeWorkItemId);
   }
   if (snapshot.runtime.processRunning) {
     return 'Runtime active';

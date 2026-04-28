@@ -199,5 +199,17 @@ function withLiveStopwatches(snapshot: DashboardSnapshot, nowMs: number): Dashbo
   return {
     ...snapshot,
     elapsedSeconds: snapshot.elapsedSeconds + elapsedDeltaSeconds,
+    metrics: {
+      ...snapshot.metrics,
+      modelRuntimeSeconds: snapshot.metrics.modelRuntimeSeconds + elapsedDeltaSeconds,
+    },
+    runtime: {
+      ...snapshot.runtime,
+      modelRuntimeSeconds: snapshot.runtime.modelRuntimeSeconds + elapsedDeltaSeconds,
+      wallClockElapsedSeconds:
+        snapshot.runtime.wallClockElapsedSeconds > 0
+          ? snapshot.runtime.wallClockElapsedSeconds + elapsedDeltaSeconds
+          : snapshot.runtime.wallClockElapsedSeconds,
+    },
   };
 }

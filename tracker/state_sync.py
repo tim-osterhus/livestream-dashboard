@@ -810,7 +810,13 @@ class NativeMillraceStateSync(StateSync):
         published_at = now_utc.isoformat().replace("+00:00", "Z")
         snapshot_updated_at = self._string(snapshot.get("updated_at")) or published_at
         elapsed_anchor = started_at or self._earliest_started_at(runs) or active_since
-        elapsed_seconds = self._elapsed_seconds(elapsed_anchor, now_utc)
+        wall_clock_elapsed_seconds = self._elapsed_seconds(elapsed_anchor, now_utc)
+        model_runtime_seconds = self._model_runtime_seconds(
+            runs,
+            now_utc=now_utc,
+            active_run_id=self._string(snapshot.get("active_run_id")),
+            active_since=active_since,
+        )
         current_model = self._string(latest_run.get("model_name"))
 
         tasks = self._work_items_for_dashboard(agents, active_stage=active_stage)
@@ -838,7 +844,7 @@ class NativeMillraceStateSync(StateSync):
         return {
             "timestamp": published_at,
             "run_id": self.config.run_id,
-            "elapsed_seconds": elapsed_seconds,
+            "elapsed_seconds": model_runtime_seconds,
             "tracker": self._tracker_blob(),
             "loop": {
                 "active_loop": active_plane,
@@ -857,6 +863,7 @@ class NativeMillraceStateSync(StateSync):
                 "cached_tokens": token_usage["cached_input_tokens"],
                 "current_model": current_model,
                 "cycle_number": len(runs),
+                "model_runtime_seconds": model_runtime_seconds,
             },
             "tests": self._default_tests(),
             "latest_commit": self._read_latest_commit(),
@@ -883,6 +890,8 @@ class NativeMillraceStateSync(StateSync):
                 "watcher_mode": self._string(snapshot.get("watcher_mode")),
                 "snapshot_updated_at": snapshot_updated_at,
                 "elapsed_anchor_at": elapsed_anchor,
+                "wall_clock_elapsed_seconds": wall_clock_elapsed_seconds,
+                "model_runtime_seconds": model_runtime_seconds,
                 "baseline_seed_package_version": self._string(baseline_manifest.get("seed_package_version")),
                 "closure": closure,
             },
@@ -1009,6 +1018,36 @@ class NativeMillraceStateSync(StateSync):
             )
         runs.sort(key=lambda item: str(item.get("completed_at") or item.get("run_id") or ""))
         return runs
+
+    def _model_runtime_seconds(
+        self,
+        runs: List[Dict[str, object]],
+        *,
+        now_utc: datetime,
+        active_run_id: Optional[str],
+        active_since: Optional[str],
+    ) -> int:
+        total = 0
+        active_run_counted = False
+        for run in runs:
+            started_at = self._parse_iso_datetime(self._string(run.get("started_at")))
+            if started_at is None:
+                continue
+            completed_at = self._parse_iso_datetime(self._string(run.get("completed_at")))
+            run_id = self._string(run.get("run_id"))
+            if completed_at is None:
+                if active_run_id and run_id == active_run_id:
+                    completed_at = now_utc
+                    active_run_counted = True
+                else:
+                    continue
+            total += max(0, int((completed_at - started_at).total_seconds()))
+
+        if active_run_id and not active_run_counted:
+            active_started_at = self._parse_iso_datetime(active_since)
+            if active_started_at is not None:
+                total += max(0, int((now_utc - active_started_at).total_seconds()))
+        return total
 
     def _event_watch_specs(self) -> List[Tuple[Path, bool]]:
         workspace = self.config.millrace_workspace
@@ -1313,11 +1352,22 @@ class NativeMillraceStateSync(StateSync):
     def _elapsed_seconds(started_at: Optional[str], now_utc: datetime) -> int:
         if not started_at:
             return 0
-        try:
-            parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        except ValueError:
+        parsed = NativeMillraceStateSync._parse_iso_datetime(started_at)
+        if parsed is None:
             return 0
         return max(0, int((now_utc - parsed.astimezone(timezone.utc)).total_seconds()))
+
+    @staticmethod
+    def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     @staticmethod
     def _clock(timestamp: Optional[str]) -> str:

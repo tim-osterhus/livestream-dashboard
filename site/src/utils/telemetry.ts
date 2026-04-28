@@ -140,6 +140,8 @@ function normalizeRuntime(
     },
     currentFailureClass: runtime?.current_failure_class ?? null,
     watcherMode: runtime?.watcher_mode ?? null,
+    wallClockElapsedSeconds: toPositiveNumber(runtime?.wall_clock_elapsed_seconds),
+    modelRuntimeSeconds: toPositiveNumber(runtime?.model_runtime_seconds ?? raw.metrics?.model_runtime_seconds ?? raw.elapsed_seconds),
     baselineSeedPackageVersion: runtime?.baseline_seed_package_version ?? null,
     closure: {
       openCount: toPositiveNumber(runtime?.closure?.open_count),
@@ -186,6 +188,7 @@ export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
       cachedTokens: toPositiveNumber(raw.metrics?.cached_tokens),
       currentModel: raw.metrics?.current_model ?? null,
       cycleNumber: raw.metrics?.cycle_number == null ? null : toPositiveNumber(raw.metrics.cycle_number),
+      modelRuntimeSeconds: toPositiveNumber(raw.metrics?.model_runtime_seconds ?? raw.elapsed_seconds),
     },
     tests: normalizeTestSuites(raw.tests),
     queues: normalizeQueues(raw.queues),
@@ -200,11 +203,17 @@ export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
 }
 
 export function getActiveTask(snapshot: DashboardSnapshot): DashboardTask | null {
-  return (
-    snapshot.tasks.find((task) => task.status === 'active') ??
-    snapshot.tasks[Math.max(0, snapshot.pipeline.currentTaskIndex - 1)] ??
-    null
-  );
+  const activeTask = snapshot.tasks.find((task) => task.status === 'active');
+  if (activeTask) {
+    return activeTask;
+  }
+
+  const indexedTask = snapshot.tasks[Math.max(0, snapshot.pipeline.currentTaskIndex - 1)];
+  if (indexedTask && indexedTask.status !== 'complete') {
+    return indexedTask;
+  }
+
+  return null;
 }
 
 export function getCompletedTaskCount(snapshot: DashboardSnapshot): number {
