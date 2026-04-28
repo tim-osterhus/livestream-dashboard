@@ -52,11 +52,16 @@ function getFocusTitle(snapshot: DashboardSnapshot, activeTask: DashboardTask | 
   return 'Runtime standby';
 }
 
-function getRuntimeLine(snapshot: DashboardSnapshot): string {
+function getRuntimeLine(snapshot: DashboardSnapshot, activeTask: DashboardTask | null): string {
+  const workItemId = snapshot.runtime.activeWorkItemId || activeTask?.id;
+  if (workItemId) {
+    const workItemKind = snapshot.runtime.activeWorkItemKind || (activeTask ? 'task' : 'work item');
+    return `${workItemKind} ${workItemId}`;
+  }
+
   const parts = [
     snapshot.runtime.activeModeId || 'mode pending',
-    snapshot.runtime.compiledPlanCurrentness || snapshot.runtime.compiledPlanId || 'plan pending',
-    snapshot.runtime.activeRunId || snapshot.runtime.watcherMode || 'run pending',
+    snapshot.runtime.watcherMode || formatPlaneLabel(snapshot.loop.activeLoop),
   ];
   return parts.filter(Boolean).join(' / ');
 }
@@ -92,7 +97,7 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
   const activeIndex = activeStage ? stageSequence.indexOf(activeStage) : -1;
   const stageRuntime = getStageRuntimeSeconds(snapshot);
   const focusTitle = getFocusTitle(snapshot, activeTask);
-  const runtimeLine = getRuntimeLine(snapshot);
+  const runtimeLine = getRuntimeLine(snapshot, activeTask);
   const completedTasks = useMemo(
     () => snapshot.tasks.filter((task) => task.status === 'complete').slice(-5).reverse(),
     [snapshot.tasks],
