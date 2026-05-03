@@ -80,8 +80,11 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
       ? `Last event ${formatTimestampAge(lastEventAgeSeconds)}`
       : 'state feed connected';
   const modelRuntimeSeconds = snapshot.metrics.modelRuntimeSeconds || snapshot.elapsedSeconds;
+  const totalModelRuntimeSeconds =
+    snapshot.metrics.totalModelRuntimeSeconds || snapshot.runtime.totalModelRuntimeSeconds;
   const wallClockSeconds = snapshot.runtime.wallClockElapsedSeconds;
   const showWallClock = wallClockSeconds > modelRuntimeSeconds + 60;
+  const showTotalModel = totalModelRuntimeSeconds > modelRuntimeSeconds + 60;
 
   const [commitFlash, setCommitFlash] = useState(false);
   const previousCommitHashRef = useRef(snapshot.latestCommit.hash);
@@ -137,8 +140,11 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
         <div className={`metric-value ${modelRuntimeSeconds > 0 ? '' : 'metric-value--muted'}`}>
           {formatElapsedTime(modelRuntimeSeconds)}
         </div>
-        <div className="metric-subline">model runtime</div>
+        <div className="metric-subline">session model runtime</div>
         {showWallClock ? <div className="metric-subline">wall clock {formatElapsedTime(wallClockSeconds)}</div> : null}
+        {showTotalModel ? (
+          <div className="metric-subline">total model {formatElapsedTime(totalModelRuntimeSeconds)}</div>
+        ) : null}
         <div className="metric-subline metric-subline--tokens">IN {formatMillions(snapshot.metrics.tokensIn)}</div>
         <div className="metric-subline metric-subline--tokens">
           CACHED {formatMillions(snapshot.metrics.cachedTokens)}&nbsp;&nbsp;OUT {formatMillions(snapshot.metrics.tokensOut)}

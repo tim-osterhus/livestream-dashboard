@@ -795,10 +795,12 @@ class NativeMillraceStateSync(StateSync):
         agents = root / "millrace-agents"
         state_dir = agents / "state"
         snapshot = self._read_json(state_dir / "runtime_snapshot.json")
+        runtime_lock = self._read_json(state_dir / "runtime_daemon.lock.json")
         compiled_plan = self._read_json(state_dir / "compiled_plan.json")
         baseline_manifest = self._read_json(state_dir / "baseline_manifest.json")
         open_targets = self._read_closure_targets(agents / "arbiter" / "targets")
-        runs = self._read_runs(agents / "runs")
+        runs_dir = agents / "runs"
+        runs = self._read_runs(runs_dir)
         latest_run = runs[-1] if runs else {}
         token_usage = self._aggregate_run_tokens(runs)
         queue_counts = self._queue_counts(agents)
@@ -809,12 +811,22 @@ class NativeMillraceStateSync(StateSync):
         started_at = self._string(snapshot.get("started_at"))
         published_at = now_utc.isoformat().replace("+00:00", "Z")
         snapshot_updated_at = self._string(snapshot.get("updated_at")) or published_at
-        elapsed_anchor = started_at or self._earliest_started_at(runs) or active_since
-        wall_clock_elapsed_seconds = self._elapsed_seconds(elapsed_anchor, now_utc)
-        model_runtime_seconds = self._model_runtime_seconds(
-            runs,
+        session_started_at = started_at or self._string(runtime_lock.get("acquired_at")) or active_since
+        elapsed_anchor = session_started_at
+        wall_clock_elapsed_seconds = self._elapsed_seconds(session_started_at, now_utc)
+        active_run_id = self._string(snapshot.get("active_run_id"))
+        model_runtime_seconds = self._stage_runtime_seconds(
+            runs_dir,
             now_utc=now_utc,
-            active_run_id=self._string(snapshot.get("active_run_id")),
+            since=session_started_at,
+            active_run_id=active_run_id,
+            active_since=active_since,
+        )
+        total_model_runtime_seconds = self._stage_runtime_seconds(
+            runs_dir,
+            now_utc=now_utc,
+            since=None,
+            active_run_id=active_run_id,
             active_since=active_since,
         )
         current_model = self._string(latest_run.get("model_name"))
@@ -875,6 +887,7 @@ class NativeMillraceStateSync(StateSync):
                 "current_model": current_model,
                 "cycle_number": len(runs),
                 "model_runtime_seconds": model_runtime_seconds,
+                "total_model_runtime_seconds": total_model_runtime_seconds,
             },
             "tests": self._default_tests(),
             "latest_commit": self._read_latest_commit(),
@@ -911,9 +924,11 @@ class NativeMillraceStateSync(StateSync):
                 "current_failure_class": self._string(snapshot.get("current_failure_class")),
                 "watcher_mode": self._string(snapshot.get("watcher_mode")),
                 "snapshot_updated_at": snapshot_updated_at,
+                "session_started_at": session_started_at,
                 "elapsed_anchor_at": elapsed_anchor,
                 "wall_clock_elapsed_seconds": wall_clock_elapsed_seconds,
                 "model_runtime_seconds": model_runtime_seconds,
+                "total_model_runtime_seconds": total_model_runtime_seconds,
                 "baseline_seed_package_version": self._string(baseline_manifest.get("seed_package_version")),
                 "closure": closure,
             },
@@ -1071,6 +1086,53 @@ class NativeMillraceStateSync(StateSync):
                 total += max(0, int((now_utc - active_started_at).total_seconds()))
         return total
 
+    def _stage_runtime_seconds(
+        self,
+        runs_dir: Path,
+        *,
+        now_utc: datetime,
+        since: Optional[str],
+        active_run_id: Optional[str],
+        active_since: Optional[str],
+    ) -> int:
+        since_dt = self._parse_iso_datetime(since)
+        total = 0
+
+        if runs_dir.exists():
+            for run_dir in sorted(path for path in runs_dir.iterdir() if path.is_dir()):
+                stage_results = sorted((run_dir / "stage_results").glob("*.json"))
+                if stage_results:
+                    for stage_path in stage_results:
+                        stage = self._read_json(stage_path)
+                        total += self._runtime_interval_seconds(
+                            self._string(stage.get("started_at")),
+                            self._string(stage.get("completed_at")),
+                            now_utc=now_utc,
+                            since_dt=since_dt,
+                        )
+                    continue
+
+                invocation = self._latest_json(run_dir, "runner_invocation.*.json")
+                completion = self._latest_json(run_dir, "runner_completion.*.json")
+                total += self._runtime_interval_seconds(
+                    self._string(completion.get("started_at"))
+                    or self._string(invocation.get("started_at"))
+                    or self._string(invocation.get("emitted_at")),
+                    self._string(completion.get("ended_at")),
+                    now_utc=now_utc,
+                    since_dt=since_dt,
+                )
+
+        if active_run_id and active_since:
+            total += self._runtime_interval_seconds(
+                active_since,
+                now_utc.isoformat(),
+                now_utc=now_utc,
+                since_dt=since_dt,
+            )
+
+        return total
+
     def _event_watch_specs(self) -> List[Tuple[Path, bool]]:
         workspace = self.config.millrace_workspace
         assert workspace is not None
@@ -1101,6 +1163,7 @@ class NativeMillraceStateSync(StateSync):
         state_dir = agents / "state"
         if absolute.parent == state_dir and absolute.name in {
             "runtime_snapshot.json",
+            "runtime_daemon.lock.json",
             "compiled_plan.json",
             "baseline_manifest.json",
             "compile_diagnostics.json",
@@ -1162,6 +1225,11 @@ class NativeMillraceStateSync(StateSync):
                 "current_failure_class",
                 "watcher_mode",
             ),
+        )
+        self._fingerprint_json_subset(
+            digest,
+            agents / "state" / "runtime_daemon.lock.json",
+            ("pid", "acquired_at", "workspace"),
         )
         self._fingerprint_json_subset(
             digest,
@@ -1436,6 +1504,27 @@ class NativeMillraceStateSync(StateSync):
         if parsed is None:
             return 0
         return max(0, int((now_utc - parsed.astimezone(timezone.utc)).total_seconds()))
+
+    @staticmethod
+    def _runtime_interval_seconds(
+        started_at: Optional[str],
+        completed_at: Optional[str],
+        *,
+        now_utc: datetime,
+        since_dt: Optional[datetime],
+    ) -> int:
+        started = NativeMillraceStateSync._parse_iso_datetime(started_at)
+        completed = NativeMillraceStateSync._parse_iso_datetime(completed_at)
+        if started is None or completed is None:
+            return 0
+
+        started = started.astimezone(timezone.utc)
+        completed = min(completed.astimezone(timezone.utc), now_utc)
+        if since_dt is not None:
+            started = max(started, since_dt.astimezone(timezone.utc))
+        if completed <= started:
+            return 0
+        return int((completed - started).total_seconds())
 
     @staticmethod
     def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:

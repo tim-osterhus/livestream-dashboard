@@ -82,6 +82,7 @@ export interface RawDashboardPayload {
     current_model?: string | null;
     cycle_number?: number | string | null;
     model_runtime_seconds?: number | string | null;
+    total_model_runtime_seconds?: number | string | null;
   };
   tests?: Record<string, RawTestSuite>;
   latest_commit?: {
@@ -120,8 +121,10 @@ export interface RawDashboardPayload {
     queue_depths_by_plane?: Record<string, number | string | null | undefined>;
     current_failure_class?: string | null;
     watcher_mode?: string | null;
+    session_started_at?: string | null;
     wall_clock_elapsed_seconds?: number | string | null;
     model_runtime_seconds?: number | string | null;
+    total_model_runtime_seconds?: number | string | null;
     baseline_seed_package_version?: string | null;
     closure?: {
       open_count?: number;
@@ -187,8 +190,10 @@ export interface DashboardRuntime {
   statusMarkers: Record<ActiveLoop, string | null>;
   currentFailureClass: string | null;
   watcherMode: string | null;
+  sessionStartedAt: string | null;
   wallClockElapsedSeconds: number;
   modelRuntimeSeconds: number;
+  totalModelRuntimeSeconds: number;
   baselineSeedPackageVersion: string | null;
   closure: {
     openCount: number;
@@ -230,6 +235,7 @@ export interface DashboardSnapshot {
     currentModel: string | null;
     cycleNumber: number | null;
     modelRuntimeSeconds: number;
+    totalModelRuntimeSeconds: number;
   };
   tests: Record<string, DashboardTestSuite>;
   queues: Record<ActiveLoop, DashboardQueueCounts>;

@@ -71,6 +71,7 @@ export const IDLE_SNAPSHOT: DashboardSnapshot = {
     currentModel: null,
     cycleNumber: null,
     modelRuntimeSeconds: 0,
+    totalModelRuntimeSeconds: 0,
   },
   tests: {
     runtime: { passed: 0, failed: 0, total: 0, active: false },
@@ -118,8 +119,10 @@ export const IDLE_SNAPSHOT: DashboardSnapshot = {
     },
     currentFailureClass: null,
     watcherMode: null,
+    sessionStartedAt: null,
     wallClockElapsedSeconds: 0,
     modelRuntimeSeconds: 0,
+    totalModelRuntimeSeconds: 0,
     baselineSeedPackageVersion: null,
     closure: {
       openCount: 0,

@@ -184,8 +184,12 @@ function normalizeRuntime(
     },
     currentFailureClass: runtime?.current_failure_class ?? null,
     watcherMode: runtime?.watcher_mode ?? null,
+    sessionStartedAt: runtime?.session_started_at ?? null,
     wallClockElapsedSeconds: toPositiveNumber(runtime?.wall_clock_elapsed_seconds),
     modelRuntimeSeconds: toPositiveNumber(runtime?.model_runtime_seconds ?? raw.metrics?.model_runtime_seconds ?? raw.elapsed_seconds),
+    totalModelRuntimeSeconds: toPositiveNumber(
+      runtime?.total_model_runtime_seconds ?? raw.metrics?.total_model_runtime_seconds,
+    ),
     baselineSeedPackageVersion: runtime?.baseline_seed_package_version ?? null,
     closure: {
       openCount: toPositiveNumber(runtime?.closure?.open_count),
@@ -233,6 +237,7 @@ export function normalizeSnapshot(raw: RawDashboardPayload): DashboardSnapshot {
       currentModel: raw.metrics?.current_model ?? null,
       cycleNumber: raw.metrics?.cycle_number == null ? null : toPositiveNumber(raw.metrics.cycle_number),
       modelRuntimeSeconds: toPositiveNumber(raw.metrics?.model_runtime_seconds ?? raw.elapsed_seconds),
+      totalModelRuntimeSeconds: toPositiveNumber(raw.metrics?.total_model_runtime_seconds),
     },
     tests: normalizeTestSuites(raw.tests),
     queues: normalizeQueues(raw.queues),
