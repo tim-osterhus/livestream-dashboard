@@ -51,3 +51,21 @@ export function formatTimestampAge(ageSeconds: number | null): string {
 export function prettifySuiteName(key: string): string {
   return key.replace(/_/g, ' ');
 }
+
+export function prettifyIdentifier(value: string | null | undefined, fallback = '--'): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  return trimmed
+    .split(/[.\s_-]+/g)
+    .filter(Boolean)
+    .map((part) => {
+      if (/^[A-Z0-9]+$/.test(part)) {
+        return part;
+      }
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
+}

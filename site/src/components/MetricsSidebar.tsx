@@ -5,6 +5,7 @@ import {
   formatElapsedTime,
   formatMillions,
   formatTimestampAge,
+  prettifyIdentifier,
   truncateMiddle,
 } from '../utils/format.js';
 import { getCompletedTaskCount, getProgressBreakdown } from '../utils/telemetry.js';
@@ -62,11 +63,14 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
   const completedTasks = getCompletedTaskCount(snapshot);
   const progressRatio = countProgress(completedTasks, snapshot.pipeline.totalTasks || snapshot.tasks.length);
   const progressBreakdown = getProgressBreakdown(snapshot);
-  const activeAgentName = getDisplayName(snapshot.runtime.activeStage ?? snapshot.pipeline.currentAgent);
+  const activeAgentName = snapshot.runtime.activeStage
+    ? getDisplayName(snapshot.runtime.activeStage)
+    : prettifyIdentifier(snapshot.runtime.activeStageLabel ?? snapshot.pipeline.rawAgent);
   const runtimeState = formatRuntimeState(snapshot);
   const workItem = snapshot.runtime.activeWorkItemId || snapshot.runtime.activeRunId || 'work item pending';
   const planId = snapshot.runtime.compiledPlanId ? truncateMiddle(snapshot.runtime.compiledPlanId, 32) : 'plan pending';
   const planState = snapshot.runtime.compiledPlanCurrentness || '--';
+  const loopLabel = snapshot.runtime.activeLoopId || snapshot.loop.activeLoop;
   const latestHash = snapshot.latestCommit.hash ? snapshot.latestCommit.hash.slice(0, 7) : '--';
   const latestMessage = snapshot.latestCommit.message || '--';
   const feedLabel = snapshot.tracker.syncMode === 'event_driven' ? 'Event feed' : 'Polling live';
@@ -107,11 +111,12 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
         </div>
         <MetricLine label="run" value={snapshot.runId || 'run pending'} />
         <MetricLine label="mode" value={snapshot.runtime.activeModeId || 'mode pending'} />
+        <MetricLine label="loop" value={loopLabel} />
         <MetricLine label="plan" value={`${planState} / ${planId}`} />
       </MetricGroup>
 
       <MetricGroup label="Work State">
-        <div className={`metric-active-agent ${snapshot.runtime.activeStage || snapshot.pipeline.currentAgent ? '' : 'metric-value--muted'}`}>
+        <div className={`metric-active-agent ${snapshot.runtime.activeStageLabel || snapshot.runtime.activeStage || snapshot.pipeline.currentAgent ? '' : 'metric-value--muted'}`}>
           {activeAgentName}
         </div>
         <div className="metric-subline">{workItem}</div>

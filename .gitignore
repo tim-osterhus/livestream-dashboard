@@ -2,5 +2,7 @@ site/node_modules/
 site/dist/
 tracker/__pycache__/
 tracker/*.pyc
+scripts/__pycache__/
 runtime/*.log
+runtime/*.pid
 runtime/dashboard.log

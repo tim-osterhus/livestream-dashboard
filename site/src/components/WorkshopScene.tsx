@@ -4,9 +4,8 @@ import type {
   DashboardQueueCounts,
   DashboardSnapshot,
   DashboardTask,
-  PipelineStage,
 } from '../types.js';
-import { formatElapsedTime, truncateMiddle } from '../utils/format.js';
+import { formatElapsedTime, prettifyIdentifier, truncateMiddle } from '../utils/format.js';
 import { getActiveStage, getActiveTask } from '../utils/telemetry.js';
 import { getDisplayName, getStageSequence } from '../workers.js';
 
@@ -16,11 +15,16 @@ interface WorkshopSceneProps {
 
 const PLANES: ActiveLoop[] = ['execution', 'planning', 'learning'];
 
-function formatStageLabel(stage: PipelineStage | null): string {
+function normalizeStageKey(stage: string | null): string | null {
+  const normalized = stage?.toLowerCase().trim().replace(/[.\s-]+/g, '_');
+  return normalized || null;
+}
+
+function formatStageLabel(stage: string | null): string {
   if (!stage) {
     return 'Standby';
   }
-  return getDisplayName(stage, stage.replace(/_/g, ' '));
+  return getDisplayName(stage as Parameters<typeof getDisplayName>[0], prettifyIdentifier(stage));
 }
 
 function formatPlaneLabel(plane: ActiveLoop): string {
@@ -93,8 +97,15 @@ function formatStatusMarker(marker: string | null | undefined): string {
 export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
   const activeTask = getActiveTask(snapshot);
   const activeStage = getActiveStage(snapshot);
-  const stageSequence = getStageSequence(snapshot.loop.activeLoop);
-  const activeIndex = activeStage ? stageSequence.indexOf(activeStage) : -1;
+  const configuredStageSequence = snapshot.runtime.stageSequencesByPlane[snapshot.loop.activeLoop];
+  const stageSequence: string[] = configuredStageSequence.length
+    ? configuredStageSequence
+    : getStageSequence(snapshot.loop.activeLoop);
+  const activeStageLabel = snapshot.runtime.activeStageLabel || activeStage;
+  const activeStageKey = normalizeStageKey(activeStageLabel);
+  const activeIndex = activeStageKey
+    ? stageSequence.findIndex((stage) => normalizeStageKey(stage) === activeStageKey)
+    : -1;
   const stageRuntime = getStageRuntimeSeconds(snapshot);
   const focusTitle = getFocusTitle(snapshot, activeTask);
   const runtimeLine = getRuntimeLine(snapshot, activeTask);
@@ -135,7 +146,7 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
         <div className="command-deck__meta-strip" aria-label="Dashboard surface metadata">
           <span>surface <strong>runtime state</strong></span>
           <span>source <strong>live-state.json</strong></span>
-          <span>loop <strong>{snapshot.loop.activeLoop}</strong></span>
+          <span>loop <strong>{snapshot.runtime.activeLoopId || snapshot.loop.activeLoop}</strong></span>
           <span>control <strong>{snapshot.runtime.activeModeId || 'mode pending'}</strong></span>
         </div>
 
@@ -144,7 +155,7 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
             <div className="focus-summary">
               <div className="focus-hero">
                 <div className="focus-hero__eyebrow">
-                  Runtime surface / {formatPlaneLabel(snapshot.loop.activeLoop)} / {formatStageLabel(activeStage)}
+                  Runtime surface / {formatPlaneLabel(snapshot.loop.activeLoop)} / {formatStageLabel(activeStageLabel)}
                 </div>
                 <h2 className="focus-hero__task" title={focusTitle}>
                   {truncateMiddle(focusTitle, 120)}
@@ -205,7 +216,9 @@ export function WorkshopScene({ snapshot }: WorkshopSceneProps) {
                       <span>done {counts.done}</span>
                     </div>
                     <div className="plane-panel__marker">
-                      {formatStatusMarker(snapshot.runtime.statusMarkers[plane])}
+                      {snapshot.runtime.loopIdsByPlane[plane]
+                        ? `${snapshot.runtime.loopIdsByPlane[plane]} / ${formatStatusMarker(snapshot.runtime.statusMarkers[plane])}`
+                        : formatStatusMarker(snapshot.runtime.statusMarkers[plane])}
                     </div>
                   </article>
                 );

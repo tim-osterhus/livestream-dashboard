@@ -62,9 +62,14 @@ export interface RawDashboardPayload {
   loop?: {
     active_loop?: string;
     research_mode?: string | null;
+    active_loop_id?: string | null;
+    loop_ids_by_plane?: Record<string, string | null | undefined>;
   };
   pipeline?: {
     current_agent?: string | null;
+    raw_stage?: string | null;
+    active_node_id?: string | null;
+    active_stage_kind_id?: string | null;
     current_task_index?: number;
     total_tasks?: number;
     agent_started_at?: string | null;
@@ -95,13 +100,24 @@ export interface RawDashboardPayload {
     compiled_plan_id?: string | null;
     compiled_plan_currentness?: string | null;
     active_plane?: string | null;
+    active_loop_id?: string | null;
+    loop_ids_by_plane?: Record<string, string | null | undefined>;
+    execution_loop_id?: string | null;
+    planning_loop_id?: string | null;
+    learning_loop_id?: string | null;
     active_stage?: string | null;
+    active_stage_label?: string | null;
+    active_node_id?: string | null;
+    active_stage_kind_id?: string | null;
     active_run_id?: string | null;
     active_work_item_kind?: string | null;
     active_work_item_id?: string | null;
+    stage_sequences_by_plane?: Record<string, string[] | undefined>;
     execution_status_marker?: string | null;
     planning_status_marker?: string | null;
     learning_status_marker?: string | null;
+    status_markers_by_plane?: Record<string, string | null | undefined>;
+    queue_depths_by_plane?: Record<string, number | string | null | undefined>;
     current_failure_class?: string | null;
     watcher_mode?: string | null;
     wall_clock_elapsed_seconds?: number | string | null;
@@ -159,6 +175,12 @@ export interface DashboardRuntime {
   compiledPlanCurrentness: string | null;
   activePlane: ActiveLoop;
   activeStage: CanonicalAgent | null;
+  activeStageLabel: string | null;
+  activeNodeId: string | null;
+  activeStageKindId: string | null;
+  activeLoopId: string | null;
+  loopIdsByPlane: Record<ActiveLoop, string | null>;
+  stageSequencesByPlane: Record<ActiveLoop, string[]>;
   activeRunId: string | null;
   activeWorkItemKind: string | null;
   activeWorkItemId: string | null;

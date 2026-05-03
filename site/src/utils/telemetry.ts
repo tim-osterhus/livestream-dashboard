@@ -52,6 +52,36 @@ function normalizeActiveLoop(value: string | null | undefined): ActiveLoop {
   return 'execution';
 }
 
+const PLANES: ActiveLoop[] = ['execution', 'planning', 'learning'];
+
+function normalizeString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeLoopIds(rawRuntime: RawDashboardPayload['runtime']): Record<ActiveLoop, string | null> {
+  const rawLoopIds = rawRuntime?.loop_ids_by_plane ?? {};
+  return {
+    execution: normalizeString(rawLoopIds.execution ?? rawRuntime?.execution_loop_id),
+    planning: normalizeString(rawLoopIds.planning ?? rawRuntime?.planning_loop_id),
+    learning: normalizeString(rawLoopIds.learning ?? rawRuntime?.learning_loop_id),
+  };
+}
+
+function normalizeStageSequences(rawRuntime: RawDashboardPayload['runtime']): Record<ActiveLoop, string[]> {
+  const rawSequences = rawRuntime?.stage_sequences_by_plane ?? {};
+  return PLANES.reduce<Record<ActiveLoop, string[]>>(
+    (accumulator, plane) => {
+      const sequence = rawSequences[plane];
+      accumulator[plane] = Array.isArray(sequence)
+        ? sequence.map((value) => normalizeString(value)).filter((value): value is string => Boolean(value))
+        : [];
+      return accumulator;
+    },
+    { execution: [], planning: [], learning: [] },
+  );
+}
+
 function normalizeTaskStatus(value: string | undefined): DashboardTask['status'] {
   if (value === 'complete') {
     return 'complete';
@@ -119,6 +149,14 @@ function normalizeRuntime(
 ): DashboardRuntime {
   const runtime = raw.runtime;
   const runtimePlane = normalizeActiveLoop(runtime?.active_plane ?? raw.loop?.active_loop);
+  const loopIdsByPlane = normalizeLoopIds(runtime);
+  const rawActiveStage =
+    runtime?.active_stage_label ??
+    runtime?.active_stage ??
+    runtime?.active_stage_kind_id ??
+    runtime?.active_node_id ??
+    raw.pipeline?.current_agent ??
+    null;
   return {
     workspace: runtime?.workspace ?? null,
     runtimeMode: runtime?.runtime_mode ?? null,
@@ -129,14 +167,20 @@ function normalizeRuntime(
     compiledPlanId: runtime?.compiled_plan_id ?? null,
     compiledPlanCurrentness: runtime?.compiled_plan_currentness ?? null,
     activePlane: runtimePlane || activeLoop,
-    activeStage: normalizeAgent(runtime?.active_stage ?? raw.pipeline?.current_agent, activeLoop, researchMode),
+    activeStage: normalizeAgent(rawActiveStage, activeLoop, researchMode),
+    activeStageLabel: normalizeString(rawActiveStage),
+    activeNodeId: normalizeString(runtime?.active_node_id ?? raw.pipeline?.active_node_id),
+    activeStageKindId: normalizeString(runtime?.active_stage_kind_id ?? raw.pipeline?.active_stage_kind_id),
+    activeLoopId: normalizeString(runtime?.active_loop_id ?? raw.loop?.active_loop_id ?? loopIdsByPlane[runtimePlane]),
+    loopIdsByPlane,
+    stageSequencesByPlane: normalizeStageSequences(runtime),
     activeRunId: runtime?.active_run_id ?? null,
     activeWorkItemKind: runtime?.active_work_item_kind ?? null,
     activeWorkItemId: runtime?.active_work_item_id ?? null,
     statusMarkers: {
-      execution: runtime?.execution_status_marker ?? null,
-      planning: runtime?.planning_status_marker ?? null,
-      learning: runtime?.learning_status_marker ?? null,
+      execution: runtime?.status_markers_by_plane?.execution ?? runtime?.execution_status_marker ?? null,
+      planning: runtime?.status_markers_by_plane?.planning ?? runtime?.planning_status_marker ?? null,
+      learning: runtime?.status_markers_by_plane?.learning ?? runtime?.learning_status_marker ?? null,
     },
     currentFailureClass: runtime?.current_failure_class ?? null,
     watcherMode: runtime?.watcher_mode ?? null,

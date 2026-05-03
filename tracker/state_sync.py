@@ -833,6 +833,12 @@ class NativeMillraceStateSync(StateSync):
         )
 
         active_mode = self._string(snapshot.get("active_mode_id")) or self._string(compiled_plan.get("mode_id"))
+        active_node_id = self._string(snapshot.get("active_node_id"))
+        active_stage_kind_id = self._string(snapshot.get("active_stage_kind_id"))
+        active_stage_label = active_stage or active_stage_kind_id or active_node_id
+        loop_ids_by_plane = self._loop_ids_by_plane(snapshot=snapshot, compiled_plan=compiled_plan)
+        active_loop_id = loop_ids_by_plane.get(active_plane)
+        stage_sequences_by_plane = self._stage_sequences_by_plane(compiled_plan)
         closure = {
             "open_count": len(open_targets),
             "root_spec_id": self._string(open_targets[0].get("root_spec_id")) if open_targets else None,
@@ -849,9 +855,14 @@ class NativeMillraceStateSync(StateSync):
             "loop": {
                 "active_loop": active_plane,
                 "research_mode": None,
+                "active_loop_id": active_loop_id,
+                "loop_ids_by_plane": loop_ids_by_plane,
             },
             "pipeline": {
-                "current_agent": active_stage,
+                "current_agent": active_stage_label,
+                "raw_stage": active_stage,
+                "active_node_id": active_node_id,
+                "active_stage_kind_id": active_stage_kind_id,
                 "current_task_index": current_index,
                 "total_tasks": total_count,
                 "agent_started_at": active_since,
@@ -879,13 +890,24 @@ class NativeMillraceStateSync(StateSync):
                 or self._string(compiled_plan.get("compiled_plan_id")),
                 "compiled_plan_currentness": self._string(snapshot.get("compiled_plan_currentness")),
                 "active_plane": active_plane,
+                "active_loop_id": active_loop_id,
+                "loop_ids_by_plane": loop_ids_by_plane,
+                "execution_loop_id": loop_ids_by_plane.get("execution"),
+                "planning_loop_id": loop_ids_by_plane.get("planning"),
+                "learning_loop_id": loop_ids_by_plane.get("learning"),
                 "active_stage": active_stage,
+                "active_stage_label": active_stage_label,
+                "active_node_id": active_node_id,
+                "active_stage_kind_id": active_stage_kind_id,
                 "active_run_id": self._string(snapshot.get("active_run_id")),
                 "active_work_item_kind": self._string(snapshot.get("active_work_item_kind")),
                 "active_work_item_id": active_work_item_id,
+                "stage_sequences_by_plane": stage_sequences_by_plane,
                 "execution_status_marker": self._string(snapshot.get("execution_status_marker")),
                 "planning_status_marker": self._string(snapshot.get("planning_status_marker")),
                 "learning_status_marker": self._string(snapshot.get("learning_status_marker")),
+                "status_markers_by_plane": self._string_map(snapshot.get("status_markers_by_plane")),
+                "queue_depths_by_plane": self._int_map(snapshot.get("queue_depths_by_plane")),
                 "current_failure_class": self._string(snapshot.get("current_failure_class")),
                 "watcher_mode": self._string(snapshot.get("watcher_mode")),
                 "snapshot_updated_at": snapshot_updated_at,
@@ -1339,6 +1361,64 @@ class NativeMillraceStateSync(StateSync):
     @staticmethod
     def _string(value: object) -> Optional[str]:
         return value if isinstance(value, str) and value else None
+
+    @staticmethod
+    def _string_map(value: object) -> Dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        result: Dict[str, str] = {}
+        for key, item in value.items():
+            if isinstance(key, str) and isinstance(item, str) and item:
+                result[key] = item
+        return result
+
+    @staticmethod
+    def _int_map(value: object) -> Dict[str, int]:
+        if not isinstance(value, dict):
+            return {}
+        result: Dict[str, int] = {}
+        for key, item in value.items():
+            if isinstance(key, str) and isinstance(item, int):
+                result[key] = item
+        return result
+
+    def _loop_ids_by_plane(self, *, snapshot: Dict[str, object], compiled_plan: Dict[str, object]) -> Dict[str, str]:
+        loop_ids = self._string_map(snapshot.get("loop_ids_by_plane")) or self._string_map(
+            compiled_plan.get("loop_ids_by_plane")
+        )
+        for plane in ("execution", "planning", "learning"):
+            explicit = self._string(snapshot.get(f"{plane}_loop_id")) or self._string(
+                compiled_plan.get(f"{plane}_loop_id")
+            )
+            if explicit:
+                loop_ids[plane] = explicit
+        return loop_ids
+
+    def _stage_sequences_by_plane(self, compiled_plan: Dict[str, object]) -> Dict[str, List[str]]:
+        graphs = compiled_plan.get("graphs_by_plane")
+        if not isinstance(graphs, dict):
+            graphs = {}
+
+        result: Dict[str, List[str]] = {}
+        for plane in ("execution", "planning", "learning"):
+            graph = graphs.get(plane)
+            if not isinstance(graph, dict):
+                graph = compiled_plan.get(f"{plane}_graph")
+            if not isinstance(graph, dict):
+                continue
+            nodes = graph.get("nodes")
+            if not isinstance(nodes, list):
+                continue
+            labels: List[str] = []
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                label = self._string(node.get("stage_kind_id")) or self._string(node.get("node_id"))
+                if label:
+                    labels.append(label)
+            if labels:
+                result[plane] = labels
+        return result
 
     @staticmethod
     def _path_name(value: object) -> Optional[str]:
