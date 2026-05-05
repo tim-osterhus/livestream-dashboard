@@ -82,9 +82,11 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
   const modelRuntimeSeconds = snapshot.metrics.modelRuntimeSeconds || snapshot.elapsedSeconds;
   const totalModelRuntimeSeconds =
     snapshot.metrics.totalModelRuntimeSeconds || snapshot.runtime.totalModelRuntimeSeconds;
+  const primaryRuntimeSeconds = totalModelRuntimeSeconds || modelRuntimeSeconds;
+  const primaryRuntimeLabel = totalModelRuntimeSeconds > 0 ? 'total model runtime' : 'session model runtime';
   const wallClockSeconds = snapshot.runtime.wallClockElapsedSeconds;
-  const showWallClock = wallClockSeconds > modelRuntimeSeconds + 60;
-  const showTotalModel = totalModelRuntimeSeconds > modelRuntimeSeconds + 60;
+  const showDaemonModel = totalModelRuntimeSeconds > modelRuntimeSeconds + 60 && modelRuntimeSeconds > 0;
+  const showDaemonUptime = wallClockSeconds > modelRuntimeSeconds + 60;
 
   const [commitFlash, setCommitFlash] = useState(false);
   const previousCommitHashRef = useRef(snapshot.latestCommit.hash);
@@ -137,14 +139,14 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
       </MetricGroup>
 
       <MetricGroup label="Usage">
-        <div className={`metric-value ${modelRuntimeSeconds > 0 ? '' : 'metric-value--muted'}`}>
-          {formatElapsedTime(modelRuntimeSeconds)}
+        <div className={`metric-value ${primaryRuntimeSeconds > 0 ? '' : 'metric-value--muted'}`}>
+          {formatElapsedTime(primaryRuntimeSeconds)}
         </div>
-        <div className="metric-subline">session model runtime</div>
-        {showWallClock ? <div className="metric-subline">wall clock {formatElapsedTime(wallClockSeconds)}</div> : null}
-        {showTotalModel ? (
-          <div className="metric-subline">total model {formatElapsedTime(totalModelRuntimeSeconds)}</div>
+        <div className="metric-subline">{primaryRuntimeLabel}</div>
+        {showDaemonModel ? (
+          <div className="metric-subline">current daemon model {formatElapsedTime(modelRuntimeSeconds)}</div>
         ) : null}
+        {showDaemonUptime ? <div className="metric-subline">daemon uptime {formatElapsedTime(wallClockSeconds)}</div> : null}
         <div className="metric-subline metric-subline--tokens">IN {formatMillions(snapshot.metrics.tokensIn)}</div>
         <div className="metric-subline metric-subline--tokens">
           CACHED {formatMillions(snapshot.metrics.cachedTokens)}&nbsp;&nbsp;OUT {formatMillions(snapshot.metrics.tokensOut)}
