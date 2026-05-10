@@ -191,6 +191,7 @@ function normalizeRuntime(
       runtime?.total_model_runtime_seconds ?? raw.metrics?.total_model_runtime_seconds,
     ),
     baselineSeedPackageVersion: runtime?.baseline_seed_package_version ?? null,
+    runtimePackageVersion: runtime?.runtime_package_version ?? null,
     closure: {
       openCount: toPositiveNumber(runtime?.closure?.open_count),
       rootSpecId: runtime?.closure?.root_spec_id ?? null,

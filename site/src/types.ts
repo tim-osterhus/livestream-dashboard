@@ -126,6 +126,7 @@ export interface RawDashboardPayload {
     model_runtime_seconds?: number | string | null;
     total_model_runtime_seconds?: number | string | null;
     baseline_seed_package_version?: string | null;
+    runtime_package_version?: string | null;
     closure?: {
       open_count?: number;
       root_spec_id?: string | null;
@@ -195,6 +196,7 @@ export interface DashboardRuntime {
   modelRuntimeSeconds: number;
   totalModelRuntimeSeconds: number;
   baselineSeedPackageVersion: string | null;
+  runtimePackageVersion: string | null;
   closure: {
     openCount: number;
     rootSpecId: string | null;

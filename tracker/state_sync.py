@@ -39,6 +39,11 @@ from pathlib import Path
 from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple
 
 try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ should have tomllib
+    tomllib = None  # type: ignore[assignment]
+
+try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover - Python 3.9+ should have zoneinfo
     ZoneInfo = None  # type: ignore
@@ -215,6 +220,8 @@ class StateSync:
         self.state = ParserState(log_lines=deque(maxlen=config.log_tail_size))
         self.tzinfo = self._load_tz(config.tracker_tz)
         self.anchor_date = self._initial_anchor_date(config.dashboard_log)
+        self._codex_default_model_cache: Optional[str] = None
+        self._runtime_package_version_cache: Optional[str] = None
         self._init_tests()
 
     def run_forever(self) -> None:
@@ -829,7 +836,16 @@ class NativeMillraceStateSync(StateSync):
             active_run_id=active_run_id,
             active_since=active_since,
         )
-        current_model = self._string(latest_run.get("model_name"))
+        current_model = self._current_model_label(
+            latest_run=latest_run,
+            runs_dir=runs_dir,
+            active_run_id=active_run_id,
+        )
+        runtime_package_version = self._runtime_package_version(
+            root=root,
+            runtime_lock=runtime_lock,
+            baseline_manifest=baseline_manifest,
+        )
 
         tasks = self._work_items_for_dashboard(agents, active_stage=active_stage)
         done_count = sum(1 for task in tasks if task.get("status") == "complete")
@@ -930,10 +946,187 @@ class NativeMillraceStateSync(StateSync):
                 "model_runtime_seconds": model_runtime_seconds,
                 "total_model_runtime_seconds": total_model_runtime_seconds,
                 "baseline_seed_package_version": self._string(baseline_manifest.get("seed_package_version")),
+                "runtime_package_version": runtime_package_version,
                 "closure": closure,
             },
             "queues": queue_counts,
         }
+
+    def _current_model_label(
+        self,
+        *,
+        latest_run: Dict[str, object],
+        runs_dir: Path,
+        active_run_id: Optional[str],
+    ) -> Optional[str]:
+        metadata = self._latest_runner_metadata(runs_dir, active_run_id)
+        model = (
+            metadata.get("model_name")
+            or self._string(latest_run.get("model_name"))
+            or metadata.get("command_model")
+        )
+        effort = metadata.get("model_reasoning_effort") or metadata.get("thinking_level")
+
+        if not model:
+            default_label = self._codex_default_model_label()
+            if default_label:
+                return default_label
+            return None
+
+        if not effort:
+            effort = self._codex_default_reasoning_effort()
+        return f"{model} {effort}" if effort else model
+
+    def _latest_runner_metadata(self, runs_dir: Path, active_run_id: Optional[str]) -> Dict[str, Optional[str]]:
+        candidates: List[Path] = []
+        if active_run_id:
+            active_dir = runs_dir / active_run_id
+            candidates.extend(sorted(active_dir.glob("runner_invocation.*.json")))
+            candidates.extend(sorted(active_dir.glob("runner_completion.*.json")))
+        if not candidates and runs_dir.exists():
+            candidates.extend(self._glob_files(runs_dir, ("runner_invocation.*.json", "runner_completion.*.json")))
+
+        result: Dict[str, Optional[str]] = {
+            "model_name": None,
+            "model_reasoning_effort": None,
+            "thinking_level": None,
+            "command_model": None,
+        }
+        for path in sorted(candidates, key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
+            payload = self._read_json(path)
+            result["model_name"] = result["model_name"] or self._string(payload.get("model_name"))
+            result["model_reasoning_effort"] = result["model_reasoning_effort"] or self._string(
+                payload.get("model_reasoning_effort")
+            )
+            result["thinking_level"] = result["thinking_level"] or self._string(payload.get("thinking_level"))
+            result["command_model"] = result["command_model"] or self._model_from_command(payload.get("command"))
+            if result["model_name"] and (result["model_reasoning_effort"] or result["thinking_level"]):
+                break
+        return result
+
+    def _codex_default_model_label(self) -> Optional[str]:
+        model = self._codex_default_model()
+        if not model:
+            return None
+        effort = self._codex_default_reasoning_effort()
+        return f"{model} {effort}" if effort else model
+
+    def _codex_default_model(self) -> Optional[str]:
+        defaults = self._codex_config_defaults()
+        return defaults.get("model")
+
+    def _codex_default_reasoning_effort(self) -> Optional[str]:
+        defaults = self._codex_config_defaults()
+        return defaults.get("model_reasoning_effort") or defaults.get("reasoning_effort")
+
+    def _codex_config_defaults(self) -> Dict[str, Optional[str]]:
+        if self._codex_default_model_cache is not None:
+            model, _, effort = self._codex_default_model_cache.partition("\n")
+            return {
+                "model": model or None,
+                "model_reasoning_effort": effort or None,
+                "reasoning_effort": effort or None,
+            }
+
+        defaults: Dict[str, Optional[str]] = {
+            "model": None,
+            "model_reasoning_effort": None,
+            "reasoning_effort": None,
+        }
+        if tomllib is not None:
+            for path in self._codex_config_paths():
+                try:
+                    payload = tomllib.loads(path.read_text(encoding="utf-8"))
+                except (OSError, tomllib.TOMLDecodeError):
+                    continue
+                for key in defaults:
+                    value = payload.get(key)
+                    if isinstance(value, str) and value:
+                        defaults[key] = value
+                if defaults["model"]:
+                    break
+
+        self._codex_default_model_cache = "\n".join(
+            (
+                defaults.get("model") or "",
+                defaults.get("model_reasoning_effort") or defaults.get("reasoning_effort") or "",
+            )
+        )
+        return defaults
+
+    @staticmethod
+    def _codex_config_paths() -> List[Path]:
+        paths: List[Path] = []
+        codex_home = os.getenv("CODEX_HOME")
+        if codex_home:
+            paths.append(Path(codex_home) / "config.toml")
+        paths.append(Path.home() / ".codex" / "config.toml")
+        paths.append(Path.home() / ".config" / "codex" / "config.toml")
+        return list(dict.fromkeys(paths))
+
+    def _runtime_package_version(
+        self,
+        *,
+        root: Path,
+        runtime_lock: Dict[str, object],
+        baseline_manifest: Dict[str, object],
+    ) -> Optional[str]:
+        if self._runtime_package_version_cache is not None:
+            return self._runtime_package_version_cache or None
+
+        discovered = self._discover_runtime_package_version(runtime_lock)
+        if not discovered:
+            discovered = self._string(baseline_manifest.get("runtime_package_version"))
+        if not discovered:
+            discovered = self._string(baseline_manifest.get("seed_package_version"))
+        self._runtime_package_version_cache = discovered or ""
+        return discovered
+
+    def _discover_runtime_package_version(self, runtime_lock: Dict[str, object]) -> Optional[str]:
+        owner_pid = runtime_lock.get("owner_pid")
+        if not isinstance(owner_pid, int) or owner_pid <= 0:
+            return None
+
+        code = f"""
+import re
+import subprocess
+from pathlib import Path
+
+pid = {owner_pid}
+cmdline = Path(f"/proc/{{pid}}/cmdline")
+candidates = []
+try:
+    parts = [part.decode("utf-8", "replace") for part in cmdline.read_bytes().split(b"\\0") if part]
+except OSError:
+    parts = []
+for part in parts[:3]:
+    if part.endswith("/millrace") or part == "millrace":
+        candidates.append(part)
+candidates.append("millrace")
+for command in dict.fromkeys(candidates):
+    try:
+        proc = subprocess.run([command, "--version"], check=False, capture_output=True, text=True, timeout=5)
+    except Exception:
+        continue
+    text = (proc.stdout or proc.stderr or "").strip()
+    match = re.search(r"millrace\\s+([^\\s]+)", text)
+    if match:
+        print(match.group(1))
+        raise SystemExit(0)
+raise SystemExit(1)
+"""
+        try:
+            proc = subprocess.run(
+                ["wsl", "-e", "python3", "-c", code],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return None
+        version = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+        return version or None
 
     def _queue_counts(self, agents: Path) -> Dict[str, Dict[str, int]]:
         return {
@@ -1429,6 +1622,24 @@ class NativeMillraceStateSync(StateSync):
     @staticmethod
     def _string(value: object) -> Optional[str]:
         return value if isinstance(value, str) and value else None
+
+    @staticmethod
+    def _model_from_command(value: object) -> Optional[str]:
+        if not isinstance(value, list):
+            return None
+        parts = [item for item in value if isinstance(item, str)]
+        for index, part in enumerate(parts):
+            if part in {"--model", "-m"} and index + 1 < len(parts):
+                return parts[index + 1] or None
+            if part.startswith("--model="):
+                return part.split("=", 1)[1] or None
+        for index, part in enumerate(parts):
+            if part == "-c" and index + 1 < len(parts):
+                override = parts[index + 1]
+                match = re.match(r"model\s*=\s*['\"]?([^'\"]+)['\"]?$", override.strip())
+                if match:
+                    return match.group(1).strip() or None
+        return None
 
     @staticmethod
     def _string_map(value: object) -> Dict[str, str]:

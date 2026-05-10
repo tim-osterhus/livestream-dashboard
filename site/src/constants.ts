@@ -124,6 +124,7 @@ export const IDLE_SNAPSHOT: DashboardSnapshot = {
     modelRuntimeSeconds: 0,
     totalModelRuntimeSeconds: 0,
     baselineSeedPackageVersion: null,
+    runtimePackageVersion: null,
     closure: {
       openCount: 0,
       rootSpecId: null,

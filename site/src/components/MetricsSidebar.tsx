@@ -67,6 +67,7 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
     ? getDisplayName(snapshot.runtime.activeStage)
     : prettifyIdentifier(snapshot.runtime.activeStageLabel ?? snapshot.pipeline.rawAgent);
   const runtimeState = formatRuntimeState(snapshot);
+  const runtimeVersion = snapshot.runtime.runtimePackageVersion || snapshot.runtime.baselineSeedPackageVersion;
   const workItem = snapshot.runtime.activeWorkItemId || snapshot.runtime.activeRunId || 'work item pending';
   const planId = snapshot.runtime.compiledPlanId ? truncateMiddle(snapshot.runtime.compiledPlanId, 32) : 'plan pending';
   const planState = snapshot.runtime.compiledPlanCurrentness || '--';
@@ -110,9 +111,7 @@ export function MetricsSidebar({ snapshot, showStaleIndicator, staleAgeSeconds, 
       <MetricGroup label="Runtime Identity">
         <div className={`metric-value metric-value--${runtimeState.toLowerCase()}`}>{runtimeState}</div>
         <div className="metric-subline">
-          {snapshot.runtime.baselineSeedPackageVersion
-            ? `Millrace ${snapshot.runtime.baselineSeedPackageVersion}`
-            : snapshot.runtime.runtimeMode || 'runtime pending'}
+          {runtimeVersion ? `Millrace ${runtimeVersion}` : snapshot.runtime.runtimeMode || 'runtime pending'}
         </div>
         <MetricLine label="run" value={snapshot.runId || 'run pending'} />
         <MetricLine label="mode" value={snapshot.runtime.activeModeId || 'mode pending'} />
