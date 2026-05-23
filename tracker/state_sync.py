@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -631,7 +632,13 @@ class StateSync:
                 with urllib.request.urlopen(request, timeout=self.config.http_timeout) as response:
                     response.read()
                 return True
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+            except (
+                urllib.error.URLError,
+                urllib.error.HTTPError,
+                TimeoutError,
+                http.client.HTTPException,
+                OSError,
+            ) as exc:
                 print(f"[state_sync] upload failed (attempt {attempt + 1}/2): {exc}", file=sys.stderr)
                 if attempt == 0 and not STOP_REQUESTED:
                     self._interruptible_sleep(self.config.retry_delay)
