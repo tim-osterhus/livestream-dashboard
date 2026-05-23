@@ -6,10 +6,13 @@
   "scripts": {
     "build": "rm -rf dist && mkdir -p dist && cp -R public/. dist/ && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "serve": "http-server dist -p 4173 -c-1"
+    "serve": "http-server dist -p 4173 -c-1",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   },
   "devDependencies": {
     "http-server": "^14.1.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "wrangler": "^4.94.0"
   }
 }
